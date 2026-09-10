@@ -1,4 +1,4 @@
-# 위젯을 Windows 로그인 시 자동 실행되게 등록한다 (선택 사항).
+﻿# 위젯을 Windows 로그인 시 자동 실행되게 등록한다 (선택 사항).
 #
 # 사용법 (PowerShell에서):
 #   cd scripts
@@ -7,7 +7,7 @@
 # shell:startup 폴더에 todo_widget.pyw로 가는 바로가기를 만든다.
 # pythonw.exe로 실행되므로 콘솔 창이 뜨지 않는다.
 # 제거하려면 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup 에서
-# "할 일 위젯.lnk"를 지우면 된다.
+# "NotionTodoWidget.lnk"를 지우면 된다.
 
 $ErrorActionPreference = "Stop"
 
@@ -26,7 +26,7 @@ if (-not $pythonw) {
 }
 
 $startupDir = [Environment]::GetFolderPath("Startup")
-$shortcutPath = Join-Path $startupDir "할 일 위젯.lnk"
+$shortcutPath = Join-Path $startupDir "NotionTodoWidget.lnk"
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
