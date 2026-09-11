@@ -18,6 +18,33 @@ let pullTimer = null;
 const md = (iso) => iso ? `${+iso.slice(5,7)}/${+iso.slice(8,10)}` : "";
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+/* ── 글자 크기 (웹판 전용) ─────────────────
+   위젯은 창 크기로 밀도를 조절하지만, 브라우저는 화면이 넓어도 글씨가
+   그대로라 휑해 보인다. body에 zoom을 걸어 텍스트와 여백을 함께 키운다. */
+const ZOOM_STEPS = [90, 100, 110, 125, 150, 175, 200];
+let zoomPct = 100;
+
+function loadZoom(){
+  try {
+    const saved = Number(localStorage.getItem("todo-widget-zoom"));
+    if (ZOOM_STEPS.includes(saved)) zoomPct = saved;
+  } catch (_) { /* 개인정보 보호 모드 등에서는 그냥 100%로 시작 */ }
+}
+function applyZoom(){
+  document.body.style.zoom = `${zoomPct}%`;
+  const pctEl = el("#zoom-pct");
+  if (pctEl) pctEl.textContent = `${zoomPct}%`;
+  try { localStorage.setItem("todo-widget-zoom", zoomPct); } catch (_) {}
+  if (tab === "matrix") requestAnimationFrame(fitCells);
+}
+function stepZoom(dir){
+  const i = ZOOM_STEPS.indexOf(zoomPct);
+  zoomPct = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + dir))];
+  applyZoom();
+}
+el("#zoom-out").addEventListener("click", () => stepZoom(-1));
+el("#zoom-in").addEventListener("click", () => stepZoom(1));
+
 /* ── 알림 ─────────────────────────────── */
 function toast(msg, hint, bad){
   const old = el(".toast");
@@ -429,6 +456,7 @@ setInterval(() => { if (!document.hidden) pull(); }, 5 * 60 * 1000);
    어댑터가 backendready를 쏘면서 Backend.chrome으로 알려준다. */
 document.addEventListener("backendready", () => {
   widget.classList.toggle("web", !Backend.chrome);
+  if (!Backend.chrome) { loadZoom(); applyZoom(); }
   syncNarrow();
   pull();
 });

@@ -269,4 +269,12 @@ ul{list-style:none;margin:0;padding:0}
 /* 웹판에는 없는 기능: 항상 위/트레이/종료는 OS 창을 다루고,
    크기 조절 손잡이는 브라우저가 대신 해준다 */
 .widget.web .pin,.widget.web #tray,.widget.web #quit,.widget.web .rz{display:none}
+/* 반대로 글자 크기 조절은 웹에만 있다. 위젯은 창 크기로 이미 밀도를 조절한다 */
+.zoomctl{display:none;align-items:center;gap:1px;flex:none}
+.widget.web .zoomctl{display:flex}
+.zoomctl .iconbtn{width:20px;height:20px;font-size:13px;font-weight:700}
+.zoom-pct{
+  font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;
+  min-width:30px;text-align:center;
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
