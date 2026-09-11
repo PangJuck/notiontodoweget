@@ -1,0 +1,9 @@
+name = "todo-widget-web"
+main = "index.js"
+compatibility_date = "2024-09-23"
+
+# 화면 코드는 ui/ 폴더 하나를 위젯과 같이 쓴다. index.js가 app.css/body.html/
+# app.js/adapter-web.js를 여기서 읽어다 조립한다.
+[assets]
+directory = "../ui"
+binding = "ASSETS"

@@ -1,0 +1,272 @@
+:root{
+  --ink:#141d27; --panel:#1c2835; --panel-2:#223141; --line:#2b3c4d;
+  --text:#dce5ec; --muted:#7b91a3;
+  --q1:#e8646c; --q2:#5fa3e0; --q3:#eab543; --q4:#74889a;
+  --accent:#eab543;
+  /* 웹폰트를 받아오지 않는다. 인터넷이 끊겨도 글자 모양이 그대로여야 한다 */
+  --kr:"Malgun Gothic","맑은 고딕","Segoe UI",system-ui,sans-serif;
+  --mono:Consolas,"D2Coding",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+/* display를 따로 준 요소는 hidden 속성만으로 안 사라진다.
+   더보기로 항목을 접는 것도, 추가 폼을 닫는 것도 전부 이 한 줄에 달려 있다 */
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  margin:0;background:var(--ink);color:var(--text);
+  font-family:var(--kr);font-size:13px;line-height:1.6;overflow:hidden;
+}
+.widget{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden}
+.widget.pinned::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+  box-shadow:0 0 0 1px var(--accent) inset;
+}
+
+/* 제목줄 — 여기를 잡고 창을 옮긴다 */
+.bar{display:flex;align-items:center;gap:8px;padding:9px 10px 7px;flex:none}
+.bar h2{margin:0;font-size:14px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;flex:none}
+.bar .sub{
+  font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.bar .warn{color:var(--q1)}
+.bar .spacer{flex:1;min-width:4px}
+.pin{
+  display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);
+  cursor:pointer;user-select:none;padding:3px 6px;border-radius:5px;white-space:nowrap;flex:none;
+}
+.pin:hover{background:var(--panel);color:var(--text)}
+.pin input{accent-color:var(--accent);width:13px;height:13px;margin:0;cursor:pointer}
+.iconbtn{
+  border:0;background:none;cursor:pointer;color:var(--muted);
+  width:24px;height:22px;border-radius:5px;font-size:13px;line-height:1;
+  display:grid;place-items:center;font-family:var(--kr);flex:none;
+}
+.iconbtn:hover{background:var(--panel);color:var(--text)}
+.iconbtn.close{color:#cf8b90}
+.iconbtn.close:hover{background:var(--q1);color:#fff}
+.iconbtn.spin{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 탭 */
+.tabs{display:flex;gap:2px;padding:0 10px 8px;flex:none;align-items:center}
+.tabs button{
+  border:0;background:none;font:inherit;font-size:12px;color:var(--muted);
+  padding:4px 10px;border-radius:6px;cursor:pointer;
+}
+.tabs button:hover{color:var(--text);background:var(--panel)}
+.tabs button[aria-selected="true"]{background:var(--panel-2);color:var(--text);font-weight:500}
+.tabs .addbtn{
+  margin-left:auto;background:var(--accent);color:#15202b;font-weight:700;
+  padding:4px 11px;border-radius:6px;
+}
+.tabs .addbtn:hover{background:#f2c257}
+
+/* 업무/개인 필터 */
+.src{display:flex;gap:2px;padding:0 10px 7px;flex:none;align-items:center}
+.src button{
+  border:0;background:none;font:inherit;font-size:11px;color:var(--muted);
+  padding:3px 9px;border-radius:11px;cursor:pointer;white-space:nowrap;
+  display:flex;align-items:baseline;gap:4px;
+}
+.src button:hover{color:var(--text);background:var(--panel)}
+.src button[aria-pressed="true"]{background:var(--panel);color:var(--text);font-weight:500}
+.src button[aria-pressed="true"].work{box-shadow:inset 0 0 0 1px var(--q2)}
+.src button[aria-pressed="true"].mine{box-shadow:inset 0 0 0 1px #8fb9ab}
+.src .n{font-family:var(--mono);font-size:9px;opacity:.65;font-variant-numeric:tabular-nums}
+.widget.narrow .src .n{display:none}
+
+/* 추가 폼 — 브라우저 prompt()는 WebView2에서 동작하지 않아 직접 만든다 */
+.addform{
+  flex:none;margin:0 10px 8px;padding:8px;border-radius:9px;
+  background:var(--panel);border:1px solid var(--line);
+  display:flex;flex-direction:column;gap:6px;
+}
+.widget.tight .addform{margin-left:7px;margin-right:7px}
+.addform input,.addform select{
+  font:inherit;font-size:12px;color:var(--text);background:var(--ink);
+  border:1px solid var(--line);border-radius:6px;padding:5px 7px;min-width:0;
+}
+.addform input:focus,.addform select:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+.addform .row{display:flex;gap:5px;flex-wrap:wrap}
+.addform .row>*{flex:1 1 70px}
+.addform .go,.addform .no{
+  flex:0 0 auto;border:0;border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit;font-size:12px;
+}
+.addform .go{background:var(--accent);color:#15202b;font-weight:700}
+.addform .no{background:none;color:var(--muted)}
+.addform .no:hover{color:var(--text)}
+
+/* 본문 */
+.body{flex:1;overflow-y:auto;padding:0 10px 12px;scrollbar-width:thin}
+.body::-webkit-scrollbar{width:7px}
+.body::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.body::-webkit-scrollbar-track{background:transparent}
+
+.pinned-box{
+  background:var(--panel);border-radius:9px;padding:8px 10px 6px;margin-bottom:9px;
+  border-left:2px solid var(--accent);
+}
+.pinned-box h3{
+  margin:0 0 3px;font-size:11px;font-weight:700;color:var(--accent);
+  display:flex;align-items:center;gap:7px;letter-spacing:.01em;
+}
+.pinned-box h3 .rule{flex:1;height:1px;background:var(--line)}
+.pinned-box h3 .cnt{font-variant-numeric:tabular-nums;font-weight:500;color:var(--muted)}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.widget.narrow .grid{grid-template-columns:1fr}
+
+/* 400px 아래에서는 2x2를 유지한 채 여백만 조여 제목 폭을 벌어준다 */
+.widget.tight .body{padding-left:7px;padding-right:7px}
+.widget.tight .bar,.widget.tight .tabs,.widget.tight .src{padding-left:7px;padding-right:7px}
+.widget.tight .grid{gap:5px}
+.widget.tight .cell{padding:7px 6px 6px}
+.widget.tight .pinned-box{padding:7px 8px 5px}
+.widget.tight .cell h3{gap:2px 4px}
+.widget.tight .cell h3 .axis{font-size:9px}
+.widget.tight .item{gap:6px}
+.widget.tight .tabs button{padding:4px 8px}
+.widget.tight .src button{padding:3px 7px}
+
+.cell{background:var(--panel);border-radius:9px;padding:8px 8px 7px;border-top:2px solid var(--line);min-width:0}
+.cell.q1{border-top-color:var(--q1)}
+.cell.q2{border-top-color:var(--q2)}
+.cell.q3{border-top-color:var(--q3)}
+.cell.q4{border-top-color:var(--q4)}
+.cell h3{
+  margin:0 0 5px;font-size:11px;font-weight:700;
+  display:flex;align-items:baseline;gap:3px 6px;flex-wrap:wrap;
+  word-break:keep-all;line-height:1.35;
+}
+.cell h3 .num{
+  font-family:var(--mono);font-size:10px;padding:0 4px;border-radius:3px;flex:none;
+  background:var(--line);color:var(--text);
+}
+.cell.q1 h3 .num{background:var(--q1);color:#fff}
+.cell.q2 h3 .num{background:var(--q2);color:#fff}
+.cell.q3 h3 .num{background:var(--q3);color:#20303f}
+.cell.q4 h3 .num{background:var(--q4);color:#fff}
+.cell h3 .axis{font-weight:400;color:var(--muted);font-size:10px}
+.cell h3 .cnt{margin-left:auto;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.cell .empty{color:var(--muted);font-size:11px;padding:3px 0 2px;opacity:.7}
+.more{
+  display:block;width:100%;margin-top:4px;padding:3px 0;border:0;border-radius:5px;cursor:pointer;
+  background:rgba(255,255,255,.045);color:var(--muted);font:inherit;font-size:10.5px;
+}
+.more:hover{background:rgba(255,255,255,.09);color:var(--text)}
+
+ul{list-style:none;margin:0;padding:0}
+.item{
+  position:relative;display:flex;gap:7px;align-items:flex-start;padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,.045);
+}
+.item:last-child{border-bottom:0}
+.chk{
+  flex:none;width:14px;height:14px;margin-top:2px;border-radius:4px;
+  border:1.5px solid var(--line);background:none;cursor:pointer;padding:0;
+}
+.chk:hover{border-color:var(--accent);background:rgba(234,181,67,.2)}
+.chk.done{border-color:var(--q4);background:var(--q4);position:relative}
+.chk.done::after{
+  content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+  border:solid #16222e;border-width:0 2px 2px 0;transform:rotate(45deg);
+}
+.t{flex:1;min-width:0;line-height:1.42;word-break:keep-all;overflow-wrap:normal;hyphens:none}
+.cell .t{font-size:12px}
+.dt{
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+  font-variant-numeric:tabular-nums;margin-left:5px;white-space:nowrap;
+}
+.dt.over{color:var(--q1)}
+.tag{
+  display:inline-block;margin-right:5px;padding:0 4px;border-radius:3px;vertical-align:1px;
+  background:var(--ink);color:var(--muted);font-size:10px;
+}
+.tag.personal{color:#8fb9ab}
+.wait{color:var(--q2);font-size:10px;margin-right:4px;vertical-align:1px}
+.item.waiting .t{color:var(--muted)}
+.memo{display:block;margin-top:2px;font-size:11px;color:var(--muted);line-height:1.4}
+/* 도구 막대는 떠 있다. 가로 공간을 전혀 차지하지 않는다 */
+.tools{
+  position:absolute;right:-2px;top:2px;z-index:2;
+  display:flex;align-items:center;gap:1px;padding:2px 3px;border-radius:6px;
+  background:var(--panel-2);box-shadow:0 2px 8px rgba(0,0,0,.45);
+  opacity:0;pointer-events:none;transition:opacity .1s;
+}
+.item:hover .tools,.item:focus-within .tools{opacity:1;pointer-events:auto}
+/* 미분류와 기록 탭에서는 도구가 늘 보여야 한다.
+   그 두 곳에서는 분류하고 되돌리는 것이 화면의 목적 자체다 */
+.unsorted .tools,.tools.always{position:static;opacity:1;pointer-events:auto;background:none;box-shadow:none;padding:0}
+.star{
+  border:0;background:none;cursor:pointer;color:var(--line);font-size:11px;
+  width:16px;height:16px;border-radius:4px;padding:0;line-height:1;
+}
+.star:hover,.star.on{color:var(--accent)}
+.pri{display:flex;gap:1px}
+.pri button{
+  width:15px;height:16px;border:0;border-radius:4px;cursor:pointer;padding:0;
+  font-family:var(--mono);font-size:9px;background:rgba(255,255,255,.05);color:var(--muted);
+}
+.pri .p1:hover,.pri .p1.on{background:var(--q1);color:#fff}
+.pri .p2:hover,.pri .p2.on{background:var(--q2);color:#fff}
+.pri .p3:hover,.pri .p3.on{background:var(--q3);color:#20303f}
+.pri .p4:hover,.pri .p4.on{background:var(--q4);color:#fff}
+.wbtn{
+  border:0;background:none;cursor:pointer;color:var(--line);font-size:10px;
+  width:16px;height:16px;border-radius:4px;padding:0;line-height:1;
+}
+.wbtn:hover,.wbtn.on{color:var(--q2)}
+.del{
+  border:0;background:none;cursor:pointer;color:var(--muted);font-size:14px;
+  width:16px;height:16px;border-radius:4px;padding:0;line-height:1;
+}
+.del:hover{color:#fff;background:var(--q1)}
+.undo{
+  border:0;background:var(--panel-2);color:var(--muted);font:inherit;font-size:10px;
+  padding:2px 7px;border-radius:5px;cursor:pointer;white-space:nowrap;
+}
+.undo:hover{background:var(--accent);color:#15202b;font-weight:500}
+
+.group{margin-top:11px}
+.group:first-child{margin-top:2px}
+.group h3{display:flex;align-items:center;gap:7px;margin:0 0 1px;font-size:11px;font-weight:700;color:var(--muted)}
+.group.past h3{color:var(--q1)}
+.group h3 .rule{flex:1;height:1px;background:var(--line)}
+.group h3 .cnt{font-variant-numeric:tabular-nums;font-weight:500}
+.unsorted{
+  margin-top:11px;background:rgba(234,181,67,.07);border:1px dashed rgba(234,181,67,.3);
+  border-radius:9px;padding:7px 9px;
+}
+.unsorted h3{color:var(--accent)}
+.unsorted .tip{margin:1px 0 3px;font-size:10px;color:var(--muted)}
+
+.notice{padding:18px 4px;color:var(--muted);font-size:12px}
+.notice b{display:block;color:var(--text);font-size:13px;margin-bottom:5px}
+
+/* 아래에서 올라오는 알림 */
+.toast{
+  position:fixed;left:10px;right:10px;bottom:10px;z-index:20;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+  padding:7px 10px;font-size:11.5px;color:var(--text);
+  box-shadow:0 6px 20px rgba(0,0,0,.5);
+}
+.toast.bad{border-color:var(--q1)}
+.toast .h{color:var(--muted);font-size:10.5px;margin-top:2px}
+
+/* 크기 조절 손잡이 */
+.rz{position:absolute;z-index:15}
+.rz.e{top:8px;right:0;width:6px;bottom:14px;cursor:ew-resize}
+.rz.s{left:8px;bottom:0;height:6px;right:14px;cursor:ns-resize}
+.rz.se{right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize}
+.rz.se::after{
+  content:"";position:absolute;right:3px;bottom:3px;width:8px;height:8px;
+  background:
+    linear-gradient(135deg,transparent 42%,var(--line) 42%,var(--line) 58%,transparent 58%),
+    linear-gradient(135deg,transparent 72%,var(--line) 72%,var(--line) 88%,transparent 88%);
+}
+.widget.resizing{user-select:none}
+/* 웹판에는 없는 기능: 항상 위/트레이/종료는 OS 창을 다루고,
+   크기 조절 손잡이는 브라우저가 대신 해준다 */
+.widget.web .pin,.widget.web #tray,.widget.web #quit,.widget.web .rz{display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

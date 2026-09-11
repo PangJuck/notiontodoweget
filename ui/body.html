@@ -1,0 +1,43 @@
+<section class="widget" id="w">
+  <div class="bar pywebview-drag-region">
+    <h2>할 일</h2>
+    <span class="sub" id="stat"></span>
+    <span class="spacer"></span>
+    <label class="pin" title="다른 창 위에 계속 떠 있게 합니다">
+      <input type="checkbox" id="ontop" checked> 항상 위
+    </label>
+    <button class="iconbtn" id="reload" title="새로고침">&#8635;</button>
+    <button class="iconbtn" id="tray" title="트레이로 숨기기">&#9472;</button>
+    <button class="iconbtn close" id="quit" title="종료">&#10005;</button>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="matrix">매트릭스</button>
+    <button role="tab" aria-selected="false" data-tab="dates">날짜</button>
+    <button role="tab" aria-selected="false" data-tab="log">기록</button>
+    <button class="addbtn" id="add">+ 추가</button>
+  </div>
+
+  <div class="src" id="src" role="group" aria-label="보기 범위">
+    <button data-src="all" aria-pressed="true">전체 <span class="n" id="n-all"></span></button>
+    <button data-src="업무" class="work" aria-pressed="false">업무 <span class="n" id="n-work"></span></button>
+    <button data-src="개인" class="mine" aria-pressed="false">개인 <span class="n" id="n-mine"></span></button>
+  </div>
+
+  <form class="addform" id="addform" hidden>
+    <input id="a-title" placeholder="할 일 (동사형으로, 기한까지)" autocomplete="off">
+    <div class="row">
+      <select id="a-tag"></select>
+      <select id="a-q"></select>
+      <input id="a-due" type="date">
+      <button type="submit" class="go">추가</button>
+      <button type="button" class="no" id="a-cancel">취소</button>
+    </div>
+  </form>
+
+  <div class="body" id="body"><div class="notice">불러오는 중…</div></div>
+
+  <div class="rz e" data-dir="e"></div>
+  <div class="rz s" data-dir="s"></div>
+  <div class="rz se" data-dir="se"></div>
+</section>

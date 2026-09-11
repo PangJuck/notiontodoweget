@@ -3,6 +3,12 @@
 말로 던진 할 일을 노션 To-do DB에 정리해 기록하고, 바탕화면 위젯이 그 DB를 읽어 보여주는 개인 도구다.
 설계 배경과 함정은 [`HANDOFF.md`](./HANDOFF.md)에 있다.
 
+화면은 두 곳에서 쓸 수 있다. 둘 다 같은 화면 코드(`ui/`)를 쓰고 기능도 똑같다.
+
+- **위젯** — Windows 바탕화면에 상주. 설치가 필요하지만 항상 위/트레이 숨기기 같은 창 조작이 된다
+- **웹판** — 설치 없이 브라우저 주소만 열면 된다. [`worker/README.md`](./worker/README.md)에 배포 방법이 있다.
+  로그인 기능이 없는 대신 Cloudflare Access로 본인 계정만 통과하도록 막아야 한다
+
 ## 4사분면
 
 할 일을 중요도와 시급성으로 나눈다. 노션 `우선순위` 속성과 위젯이 같은 값을 쓴다.
@@ -71,13 +77,16 @@
 ## 구성
 
 - `.claude/skills/todo/SKILL.md` — 할 일을 노션에 4사분면으로 기록/조회/완료 처리하고 아침·퇴근 루틴을 돌리는 Claude 스킬
-- `scripts/todo_widget.py` — 바탕화면 상주 위젯 본체 (pywebview + pystray). 파이썬은 노션 데이터만 주고 화면은 그 안의 JS가 그린다
+- `ui/` — 위젯과 웹판이 같이 쓰는 화면 코드. `app.css`, `body.html`, `app.js`가 전부이고
+  뒤가 pywebview인지 브라우저인지는 `adapter-widget.js` / `adapter-web.js`가 갈라준다
+- `scripts/todo_widget.py` — 바탕화면 상주 위젯 본체 (pywebview + pystray). `ui/`를 읽어 화면을 조립하고, 파이썬은 노션 데이터만 준다
 - `scripts/todo_widget.pyw` — 콘솔 창 없이 실행하는 런처 (시작프로그램용, 파이썬으로 돌릴 때)
 - `scripts/build_exe.ps1` — 파이썬 없이 더블클릭으로 실행되는 `TodoWidget.exe`를 만드는 스크립트
 - `scripts/assets/` — 아이콘 원본 두 장 (`app.png`, 작은 크기용 `app.small.png`)
 - `scripts/make_icon.py` — 그 둘을 윈도우용 `app.ico`(16~256px)로 굽는다. 빌드가 알아서 부른다
 - `scripts/.env.example` — 위젯용 노션 토큰 설정 예시
 - `scripts/install_startup.ps1` — Windows 로그인 시 위젯 자동 실행 등록 (선택, 파이썬으로 돌릴 때용)
+- `worker/` — 웹판(Cloudflare Worker). `ui/`와 같은 화면에, 노션 호출 로직만 JS로 옮겨 토큰을 쥔 채 대신 불러준다. 배포 방법은 [`worker/README.md`](./worker/README.md)
 
 ## 위젯 실행 (Windows, 파이썬으로)
 

@@ -21,6 +21,7 @@ python make_icon.py
 pyinstaller --noconfirm --onefile --windowed --name TodoWidget `
     --icon assets\app.ico `
     --add-data "assets;assets" `
+    --add-data "..\ui;ui" `
     --hidden-import clr_loader `
     --hidden-import pythonnet `
     todo_widget.py
@@ -33,12 +34,13 @@ if (Test-Path .env) {
     Write-Host ".env가 아직 없다. dist\.env.example을 dist\.env로 복사해 토큰을 채운다."
 }
 
-# exe 옆에도 아이콘을 풀어둔다. 이걸 갈아끼우면 다시 빌드하지 않고도
-# 트레이 아이콘이 바뀐다.
+# exe 옆에도 아이콘과 화면 코드를 풀어둔다. 이걸 갈아끼우면 다시 빌드하지
+# 않고도 트레이 아이콘이나 화면이 바뀐다.
 New-Item -ItemType Directory -Force -Path dist\assets | Out-Null
 Copy-Item assets\app.png dist\assets\app.png -Force -ErrorAction SilentlyContinue
 Copy-Item assets\app.small.png dist\assets\app.small.png -Force -ErrorAction SilentlyContinue
 Copy-Item assets\app.ico dist\assets\app.ico -Force
+Copy-Item ..\ui dist\ui -Recurse -Force
 
 Write-Host ""
 Write-Host "완료: dist\TodoWidget.exe"
