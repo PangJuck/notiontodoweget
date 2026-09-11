@@ -24,6 +24,7 @@ Insert content가 모두 필요하다.
 
 import json
 import os
+import re
 import sys
 import threading
 import urllib.error
@@ -83,15 +84,68 @@ SOURCES = [
 ]
 SOURCE_IDS = dict(SOURCES)
 
-# 4사분면. 노션 `우선순위` 셀렉트 옵션과 글자까지 정확히 같아야 한다.
+# 4사분면. 노션 `우선순위` 옵션은 앞 숫자 1~4로만 매칭한다.
+# 숫자 뒤 글자는 노션에서 마음대로 바꿔도 위젯이 따라간다.
 QUADRANTS = [
-    ("1 지금 당장", "q1", "중요 + 시급"),
-    ("2 핵심 업무", "q2", "중요 + 안 시급"),
-    ("3 빠르게 쳐낼", "q3", "안 중요 + 시급"),
-    ("4 버릴 일", "q4", "안 중요 + 안 시급"),
+    (1, "q1", "중요 + 시급", "지금 당장"),
+    (2, "q2", "중요 + 안 시급", "핵심 업무"),
+    (3, "q3", "안 중요 + 시급", "빠르게 쳐낼"),
+    (4, "q4", "안 중요 + 안 시급", "언젠가"),
 ]
-QUADRANT_NAMES = [name for name, _, _ in QUADRANTS]
+QUADRANT_NUMS = [num for num, _, _, _ in QUADRANTS]
 UNSORTED = "미분류"
+
+# 노션에 실제로 들어 있는 옵션 이름. {db_id: {1: "1 지금 당장 (중요+시급)", ...}}
+# 위젯이 값을 쓸 때는 이 이름을 그대로 써야 새 옵션이 생기지 않는다.
+option_names = {}
+
+
+def quadrant_num(name):
+    """옵션 이름 앞의 1~4를 뽑는다. 없으면 None."""
+    m = re.match(r"\s*([1-4])", name or "")
+    return int(m.group(1)) if m else None
+
+
+def load_option_names(db_id):
+    """노션 DB 스키마에서 `우선순위` 옵션 이름을 읽어 번호별로 담는다."""
+    req = urllib.request.Request(
+        f"https://api.notion.com/v1/databases/{db_id}", method="GET", headers=headers()
+    )
+    with urllib.request.urlopen(req, timeout=15) as res:
+        schema = json.load(res)
+    options = schema.get("properties", {}).get("우선순위", {}).get("select", {}).get("options", [])
+    found = {}
+    for opt in options:
+        num = quadrant_num(opt.get("name"))
+        if num and num not in found:
+            found[num] = opt["name"]
+    return found
+
+
+def option_name(db_id, num):
+    """번호에 해당하는 실제 옵션 이름. 못 읽었으면 기본값으로 만든다."""
+    names = option_names.get(db_id) or {}
+    if num in names:
+        return names[num]
+    for n, _, axis, label in QUADRANTS:
+        if n == num:
+            return f"{n} {label} ({axis.replace(' ', '')})"
+    return None
+
+
+def quadrant_label(num, items):
+    """칸 제목. 노션에 있는 이름을 쓰되, 없으면 기본 이름."""
+    for item in items:
+        if item["qnum"] == num and item["qname"]:
+            return item["qname"]
+    for db_id in (db for _, db in SOURCES):
+        names = option_names.get(db_id) or {}
+        if num in names:
+            return names[num]
+    for n, _, axis, label in QUADRANTS:
+        if n == num:
+            return f"{n} {label}"
+    return str(num)
 
 GROUPS = ["지난 것", "오늘", "이번 주", "날짜 미정"]
 LATER = ["이번 달", "그 이후"]
@@ -178,14 +232,17 @@ def parse(row, tag):
     p = row.get("properties", {})
     raw = (p.get("마감일", {}).get("date") or {}).get("start")
     select = p.get("우선순위", {}).get("select") or {}
-    quadrant = select.get("name")
+    qname = select.get("name")
+    qnum = quadrant_num(qname)
     return {
         "id": row["id"],
         "tag": tag,
+        "db": SOURCE_IDS[tag],
         "title": plain(p.get("할 일"), "title") or "(제목 없음)",
         "memo": plain(p.get("메모"), "rich_text"),
         "due": date.fromisoformat(raw[:10]) if raw else None,
-        "quadrant": quadrant if quadrant in QUADRANT_NAMES else None,
+        "qnum": qnum,
+        "qname": qname if qnum else None,
         "today": bool(p.get("오늘의 3", {}).get("checkbox")),
         "waiting": bool(p.get("대기중", {}).get("checkbox")),
     }
@@ -208,6 +265,11 @@ def bucket(due, today):
 def load_items():
     items = []
     for tag, db_id in SOURCES:
+        if db_id not in option_names:
+            try:
+                option_names[db_id] = load_option_names(db_id)
+            except (urllib.error.HTTPError, OSError, ValueError):
+                option_names[db_id] = {}
         items += [parse(r, tag) for r in fetch_rows(db_id)]
     today = date.today()
     items.sort(key=lambda i: (i["due"] is None, i["due"] or today, i["tag"]))
@@ -233,9 +295,9 @@ def render_item(item, compact=False):
 
     star_on = " on" if item["today"] else ""
     pri = "".join(
-        f'<button class="p{slug[1]}{" on" if item["quadrant"] == name else ""}" '
-        f"onclick=\"setPri('{pid}','{name}')\" title=\"{label}\">{slug[1]}</button>"
-        for name, slug, label in QUADRANTS
+        f'<button class="p{num}{" on" if item["qnum"] == num else ""}" '
+        f"onclick=\"setPri('{pid}',{num},'{item['tag']}')\" title=\"{axis}\">{num}</button>"
+        for num, _, axis, _ in QUADRANTS
     )
 
     return (
@@ -258,7 +320,7 @@ def render_notice(head, detail):
 
 TAG_OPTIONS = "".join(f'<option value="{tag}">{tag}</option>' for tag, _ in SOURCES)
 QUAD_OPTIONS = '<option value="">사분면</option>' + "".join(
-    f'<option value="{name}">{name}</option>' for name in QUADRANT_NAMES
+    f'<option value="{num}">{num} {label}</option>' for num, _, _, label in QUADRANTS
 )
 
 ADD_FORM = f"""<div class="addform" id="addform" hidden>
@@ -278,8 +340,8 @@ ADD_FORM = f"""<div class="addform" id="addform" hidden>
 
 def render_bar(items):
     today_items = [i for i in items if i["today"]]
-    unsorted = len([i for i in items if i["quadrant"] is None])
-    q1 = len([i for i in items if i["quadrant"] == QUADRANT_NAMES[0]])
+    unsorted = len([i for i in items if i["qnum"] is None])
+    q1 = len([i for i in items if i["qnum"] == 1])
 
     line = f'오늘의 3: {len(today_items)}/3'
     if q1:
@@ -316,11 +378,12 @@ def render_matrix(items):
         html.append("</ul></section>")
 
     html.append('<div class="grid">')
-    for name, slug, label in QUADRANTS:
-        cell = [i for i in items if i["quadrant"] == name]
+    for num, slug, axis, _ in QUADRANTS:
+        cell = [i for i in items if i["qnum"] == num]
+        title = escape(quadrant_label(num, items))
         html.append(f'<section class="cell {slug}">')
-        html.append(f'<h3>{name}<span class="n">{len(cell)}</span></h3>')
-        html.append(f'<p class="axis">{label}</p><ul>')
+        html.append(f'<h3>{title}<span class="n">{len(cell)}</span></h3>')
+        html.append(f'<p class="axis">{axis}</p><ul>')
         if cell:
             html.extend(render_item(i, compact=True) for i in cell)
         else:
@@ -328,7 +391,7 @@ def render_matrix(items):
         html.append("</ul></section>")
     html.append("</div>")
 
-    rest = [i for i in items if i["quadrant"] is None]
+    rest = [i for i in items if i["qnum"] is None]
     if rest:
         html.append(
             f'<section class="group unsorted"><h2>미분류<i></i>{len(rest)}</h2>'
@@ -492,7 +555,7 @@ const root = () => document.getElementById('root');
 async function refresh(){ root().innerHTML = await pywebview.api.body(); }
 async function swap(){ root().innerHTML = await pywebview.api.swap(); }
 async function done(id){ root().innerHTML = await pywebview.api.done(id); }
-async function setPri(id, q){ root().innerHTML = await pywebview.api.setpri(id, q); }
+async function setPri(id, q, tag){ root().innerHTML = await pywebview.api.setpri(id, q, tag); }
 async function star(id, on){ root().innerHTML = await pywebview.api.star(id, on); }
 function toggleAdd(show){
   const f = document.getElementById('addform');
@@ -591,10 +654,15 @@ class Api:
     def done(self, page_id):
         return guarded(complete, page_id)
 
-    def setpri(self, page_id, quadrant):
-        if quadrant not in QUADRANT_NAMES:
-            quadrant = None
-        return guarded(set_priority, page_id, quadrant)
+    def setpri(self, page_id, num, tag=None):
+        """번호(1~4)를 받아 그 DB에 실제로 있는 옵션 이름으로 바꿔 쓴다."""
+        try:
+            num = int(num)
+        except (TypeError, ValueError):
+            num = None
+        db_id = SOURCE_IDS.get(tag, SOURCES[0][1])
+        name = option_name(db_id, num) if num in QUADRANT_NUMS else None
+        return guarded(set_priority, page_id, name)
 
     def star(self, page_id, on):
         return guarded(set_today, page_id, bool(on))
@@ -608,10 +676,13 @@ class Api:
             return build_body()
         if tag not in SOURCE_IDS:
             tag = SOURCES[0][0]
-        if quadrant not in QUADRANT_NAMES:
-            quadrant = None
+        try:
+            num = int(quadrant)
+        except (TypeError, ValueError):
+            num = None
+        name = option_name(SOURCE_IDS[tag], num) if num in QUADRANT_NUMS else None
         due = (due or "").strip() or None
-        return guarded(create, tag, title, due, quadrant)
+        return guarded(create, tag, title, due, name)
 
     def remove(self, page_id):
         return guarded(trash, page_id)
