@@ -606,13 +606,19 @@ tray_icon = None
 
 
 def make_tray_image():
-    """트레이 아이콘. assets/app.png가 있으면 그걸 쓴다."""
-    png = asset_path("app.png")
-    if png:
+    """트레이 아이콘.
+
+    윈도우 트레이는 16px라 전체 그림을 넣으면 뭉갠다.
+    주인공만 잘라둔 app.small.png를 먼저 찾는다.
+    """
+    for name in ("app.small.png", "app.png"):
+        png = asset_path(name)
+        if not png:
+            continue
         try:
             return Image.open(png).convert("RGBA")
         except OSError:
-            pass  # 그림이 깨져 있으면 아래 기본 그림으로 넘어간다
+            pass  # 그림이 깨져 있으면 다음 후보, 없으면 아래 기본 그림으로
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((3, 3, 60, 60), radius=12, fill=(22, 32, 43, 255))

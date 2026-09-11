@@ -37,6 +37,7 @@ if (Test-Path .env) {
 # 트레이 아이콘이 바뀐다.
 New-Item -ItemType Directory -Force -Path dist\assets | Out-Null
 Copy-Item assets\app.png dist\assets\app.png -Force -ErrorAction SilentlyContinue
+Copy-Item assets\app.small.png dist\assets\app.small.png -Force -ErrorAction SilentlyContinue
 Copy-Item assets\app.ico dist\assets\app.ico -Force
 
 Write-Host ""

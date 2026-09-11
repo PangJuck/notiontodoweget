@@ -59,8 +59,8 @@
 - `scripts/todo_widget.py` — 바탕화면 상주 위젯 본체 (pywebview + pystray)
 - `scripts/todo_widget.pyw` — 콘솔 창 없이 실행하는 런처 (시작프로그램용, 파이썬으로 돌릴 때)
 - `scripts/build_exe.ps1` — 파이썬 없이 더블클릭으로 실행되는 `TodoWidget.exe`를 만드는 스크립트
-- `scripts/assets/app.png` — exe/트레이/창에 쓰는 아이콘 원본 (이 파일만 갈아끼우면 된다)
-- `scripts/make_icon.py` — `app.png`를 윈도우용 `app.ico`(16~256px)로 굽는다. 빌드가 알아서 부른다
+- `scripts/assets/` — 아이콘 원본 두 장 (`app.png`, 작은 크기용 `app.small.png`)
+- `scripts/make_icon.py` — 그 둘을 윈도우용 `app.ico`(16~256px)로 굽는다. 빌드가 알아서 부른다
 - `scripts/.env.example` — 위젯용 노션 토큰 설정 예시
 - `scripts/install_startup.ps1` — Windows 로그인 시 위젯 자동 실행 등록 (선택, 파이썬으로 돌릴 때용)
 
@@ -93,16 +93,23 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 
 `scripts\dist\TodoWidget.exe`가 생기고, 그 옆에 `.env`가 같이 복사된다. 이후로는 파이썬 없이 그 exe를 더블클릭하면 된다. exe를 다른 폴더로 옮기면 `.env`도 같이 옮긴다.
 
-## 아이콘 바꾸기
+## 아이콘
 
-`scripts/assets/app.png` 하나만 갈아끼우면 exe 아이콘, 작업표시줄, 트레이, 창이 전부 따라온다.
-정사각형이 아니어도 되고(비율 유지한 채 투명 여백을 채운다), 512x512 이상을 권한다.
+`scripts/assets/`에 두 장이 들어 있다.
 
-빌드할 때 `make_icon.py`가 `app.ico`를 자동으로 굽는다. `.ico`를 직접 만들 필요는 없다.
-`app.png`가 없으면 4사분면 모양을 임시로 그려 쓴다. 파이썬 기본 깃털 아이콘은 뜨지 않는다.
+| 파일 | 쓰이는 곳 |
+|---|---|
+| `app.png` | 48~256px. 바탕화면, 큰 아이콘 보기 |
+| `app.small.png` | 16~32px. 시스템 트레이, 작업표시줄 |
 
-이미 만들어둔 exe의 트레이 아이콘만 바꾸고 싶으면 `dist\assets\app.png`를 교체하고 위젯을 다시 켠다.
-exe 파일 자체의 아이콘은 다시 빌드해야 바뀐다.
+윈도우 트레이는 16px라 전체 장면을 넣으면 알아볼 수 없다. `.ico` 한 파일 안에
+크기별로 다른 그림을 담을 수 있어서, 작은 크기에는 주인공만 잘라둔 쪽을 쓴다.
+
+빌드할 때 `make_icon.py`가 이 둘을 `app.ico`로 굽는다. `.ico`를 직접 만들 필요는 없다.
+갈아끼우려면 PNG만 덮어쓴다. 배경이 투명해야 하고, 정사각형이 아니어도 된다.
+
+이미 만들어둔 exe의 트레이 아이콘만 바꾸려면 `dist\assets\app.small.png`를 교체하고
+위젯을 다시 켠다. exe 파일 자체의 아이콘은 다시 빌드해야 바뀐다.
 
 바꿨는데 옛날 아이콘이 보이면 윈도우 아이콘 캐시 탓이다. 바탕화면에서 F5, 그래도 그대로면:
 
