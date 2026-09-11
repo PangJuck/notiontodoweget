@@ -14,8 +14,12 @@
 체크/추가/삭제 기능을 쓰려면 토큰 권한에 Read content와 Update content,
 Insert content가 모두 필요하다.
 
-로컬에는 아무것도 저장하지 않는다. 추가/완료/삭제 모두 노션 API를
+로컬에는 아무것도 저장하지 않는다. 추가/완료/삭제/분류 모두 노션 API를
 바로 호출하므로 위젯 화면이 곧 노션 상태 그대로다.
+
+화면 모드는 둘이다.
+    매트릭스 - 중요/시급 4사분면. 기본값
+    날짜     - 지난 것/오늘/이번 주/날짜 미정
 """
 
 import json
@@ -79,8 +83,21 @@ SOURCES = [
 ]
 SOURCE_IDS = dict(SOURCES)
 
+# 4사분면. 노션 `우선순위` 셀렉트 옵션과 글자까지 정확히 같아야 한다.
+QUADRANTS = [
+    ("1 지금 당장", "q1", "중요 + 시급"),
+    ("2 핵심 업무", "q2", "중요 + 안 시급"),
+    ("3 빠르게 쳐낼", "q3", "안 중요 + 시급"),
+    ("4 버릴 일", "q4", "안 중요 + 안 시급"),
+]
+QUADRANT_NAMES = [name for name, _, _ in QUADRANTS]
+UNSORTED = "미분류"
+
 GROUPS = ["지난 것", "오늘", "이번 주", "날짜 미정"]
 LATER = ["이번 달", "그 이후"]
+
+# 위젯이 지금 보여주는 모드. 새로고침해도 유지된다.
+view_mode = "matrix"
 
 
 def headers():
@@ -107,23 +124,43 @@ def fetch_rows(db_id):
     return call(f"https://api.notion.com/v1/databases/{db_id}/query", payload, "POST")["results"]
 
 
+def patch(page_id, properties):
+    call(f"https://api.notion.com/v1/pages/{page_id}", {"properties": properties}, "PATCH")
+
+
 def complete(page_id):
-    payload = {
-        "properties": {
+    patch(
+        page_id,
+        {
             "완료": {"checkbox": True},
             "완료일": {"date": {"start": date.today().isoformat()}},
-        }
-    }
-    call(f"https://api.notion.com/v1/pages/{page_id}", payload, "PATCH")
+            "오늘의 3": {"checkbox": False},
+        },
+    )
 
 
-def create(tag, title, due):
+def set_priority(page_id, quadrant):
+    value = {"select": {"name": quadrant}} if quadrant else {"select": None}
+    patch(page_id, {"우선순위": value})
+
+
+def set_today(page_id, on):
+    patch(page_id, {"오늘의 3": {"checkbox": bool(on)}})
+
+
+def set_waiting(page_id, on):
+    patch(page_id, {"대기중": {"checkbox": bool(on)}})
+
+
+def create(tag, title, due, quadrant):
     properties = {
         "할 일": {"title": [{"text": {"content": title[:2000]}}]},
         "완료": {"checkbox": False},
     }
     if due:
         properties["마감일"] = {"date": {"start": due}}
+    if quadrant:
+        properties["우선순위"] = {"select": {"name": quadrant}}
     payload = {"parent": {"database_id": SOURCE_IDS[tag]}, "properties": properties}
     call("https://api.notion.com/v1/pages", payload, "POST")
 
@@ -133,15 +170,24 @@ def trash(page_id):
     call(f"https://api.notion.com/v1/pages/{page_id}", {"archived": True}, "PATCH")
 
 
+def plain(prop, key):
+    return "".join(t.get("plain_text", "") for t in (prop or {}).get(key, []) or [])
+
+
 def parse(row, tag):
-    p = row["properties"]
-    raw = (p["마감일"]["date"] or {}).get("start")
+    p = row.get("properties", {})
+    raw = (p.get("마감일", {}).get("date") or {}).get("start")
+    select = p.get("우선순위", {}).get("select") or {}
+    quadrant = select.get("name")
     return {
         "id": row["id"],
         "tag": tag,
-        "title": "".join(t["plain_text"] for t in p["할 일"]["title"]) or "(제목 없음)",
-        "memo": "".join(t["plain_text"] for t in p["메모"]["rich_text"]),
+        "title": plain(p.get("할 일"), "title") or "(제목 없음)",
+        "memo": plain(p.get("메모"), "rich_text"),
         "due": date.fromisoformat(raw[:10]) if raw else None,
+        "quadrant": quadrant if quadrant in QUADRANT_NAMES else None,
+        "today": bool(p.get("오늘의 3", {}).get("checkbox")),
+        "waiting": bool(p.get("대기중", {}).get("checkbox")),
     }
 
 
@@ -159,18 +205,50 @@ def bucket(due, today):
     return "그 이후"
 
 
-def render_item(item):
-    memo = f'<span class="memo">{escape(item["memo"])}</span>' if item["memo"] else ""
+def load_items():
+    items = []
+    for tag, db_id in SOURCES:
+        items += [parse(r, tag) for r in fetch_rows(db_id)]
+    today = date.today()
+    items.sort(key=lambda i: (i["due"] is None, i["due"] or today, i["tag"]))
+    return items
+
+
+def render_item(item, compact=False):
+    """항목 한 줄.
+
+    compact=True면 매트릭스 칸 안이라 자리가 좁다. 메모와 태그를 접는다.
+    """
+    memo = ""
+    if item["memo"] and not compact:
+        memo = f'<span class="memo">{escape(item["memo"])}</span>'
     due = f'{item["due"].month}/{item["due"].day}' if item["due"] else ""
-    cls = "tag personal" if item["tag"] == "개인" else "tag"
+    tag_cls = "tag personal" if item["tag"] == "개인" else "tag"
+    tag = "" if compact else f'<span class="{tag_cls}">{item["tag"]}</span>'
+    pid = item["id"]
+
+    classes = ["item"]
+    if item["waiting"]:
+        classes.append("waiting")
+
+    star_on = " on" if item["today"] else ""
+    pri = "".join(
+        f'<button class="p{slug[1]}{" on" if item["quadrant"] == name else ""}" '
+        f"onclick=\"setPri('{pid}','{name}')\" title=\"{label}\">{slug[1]}</button>"
+        for name, slug, label in QUADRANTS
+    )
+
     return (
-        f'<li class="item">'
-        f'<button class="chk" onclick="done(\'{item["id"]}\')" aria-label="완료"></button>'
-        f'<span class="t"><span class="{cls}">{item["tag"]}</span>'
-        f'{escape(item["title"])}{memo}</span>'
+        f'<li class="{" ".join(classes)}">'
+        f"<button class=\"chk\" onclick=\"done('{pid}')\" aria-label=\"완료\"></button>"
+        f'<span class="t">{tag}{escape(item["title"])}{memo}</span>'
         f'<span class="d">{due}</span>'
-        f'<button class="del" onclick="askDelete(this,\'{item["id"]}\')" aria-label="삭제">×</button>'
-        f"</li>"
+        f'<span class="tools">'
+        f"<button class=\"star{star_on}\" onclick=\"star('{pid}',{str(not item['today']).lower()})\" "
+        f'title="오늘의 3">★</button>'
+        f'<span class="pri">{pri}</span>'
+        f"<button class=\"del\" onclick=\"askDelete(this,'{pid}')\" aria-label=\"삭제\">×</button>"
+        f"</span></li>"
     )
 
 
@@ -179,46 +257,90 @@ def render_notice(head, detail):
 
 
 TAG_OPTIONS = "".join(f'<option value="{tag}">{tag}</option>' for tag, _ in SOURCES)
+QUAD_OPTIONS = '<option value="">사분면</option>' + "".join(
+    f'<option value="{name}">{name}</option>' for name in QUADRANT_NAMES
+)
 
 ADD_FORM = f"""<div class="addform" id="addform" hidden>
-  <input id="addtitle" type="text" maxlength="200" placeholder="할 일"
+  <input id="addtitle" type="text" maxlength="200" placeholder="무엇을 언제까지 (동사형으로)"
     onkeydown="if(event.key==='Enter')submitAdd(); if(event.key==='Escape')toggleAdd(false)">
   <div class="addrow">
     <select id="addtag">{TAG_OPTIONS}</select>
-    <input id="adddue" type="date">
+    <select id="addpri">{QUAD_OPTIONS}</select>
   </div>
-  <div class="addbtns">
+  <div class="addrow">
+    <input id="adddue" type="date">
     <button class="txt primary" onclick="submitAdd()">추가</button>
     <button class="txt" onclick="toggleAdd(false)">취소</button>
   </div>
 </div>"""
 
 
-def build_body():
-    if not TOKEN:
-        return render_notice(
-            "토큰이 아직 비어 있다",
-            f"{ENV_PATH.name} 파일을 만들어 NOTION_TODO_TOKEN=토큰값 을 한 줄 적고 위젯을 다시 실행한다. "
-            f"({SCRIPT_DIR} 폴더에 .env.example 참고)",
-        )
-    items = []
-    try:
-        for tag, db_id in SOURCES:
-            items += [parse(r, tag) for r in fetch_rows(db_id)]
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            return render_notice("토큰이 거부됐다", "노션 Integration 설정에서 토큰을 다시 복사한다.")
-        if e.code == 404:
-            return render_notice(
-                "DB를 못 찾는다",
-                "업무와 개인 DB 각각에서 ... > 연결 을 열고 이 Integration을 추가한다.",
-            )
-        return render_notice(f"노션이 {e.code}를 반환했다", "잠시 후 새로고침한다.")
-    except OSError:
-        return render_notice("노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다.")
+def render_bar(items):
+    today_items = [i for i in items if i["today"]]
+    unsorted = len([i for i in items if i["quadrant"] is None])
+    q1 = len([i for i in items if i["quadrant"] == QUADRANT_NAMES[0]])
 
+    line = f'오늘의 3: {len(today_items)}/3'
+    if q1:
+        line += f', <span class="warn">지금 당장 {q1}</span>'
+    if unsorted:
+        line += f', <span class="muted">미분류 {unsorted}</span>'
+
+    tray_btn = '<button class="txt" onclick="minimize()">트레이로</button>' if TRAY_AVAILABLE else ""
+    other = "날짜" if view_mode == "matrix" else "매트릭스"
+
+    return "".join(
+        [
+            '<div class="bar"><h1>할 일</h1>',
+            f'<span class="sub">{line}</span>',
+            '<span class="acts">',
+            f'<button class="txt" onclick="swap()">{other}</button>',
+            '<button class="txt" onclick="toggleAdd()">추가</button>',
+            '<button class="txt" onclick="refresh()">새로고침</button>',
+            tray_btn,
+            '<button class="txt" onclick="quitApp()" aria-label="종료">종료</button>',
+            "</span></div>",
+            ADD_FORM,
+        ]
+    )
+
+
+def render_matrix(items):
+    html = []
+
+    pinned = [i for i in items if i["today"]]
+    if pinned:
+        html.append('<section class="pinned"><h2>오늘 끝낼 것<i></i>' f"{len(pinned)}/3</h2><ul>")
+        html.extend(render_item(i) for i in pinned)
+        html.append("</ul></section>")
+
+    html.append('<div class="grid">')
+    for name, slug, label in QUADRANTS:
+        cell = [i for i in items if i["quadrant"] == name]
+        html.append(f'<section class="cell {slug}">')
+        html.append(f'<h3>{name}<span class="n">{len(cell)}</span></h3>')
+        html.append(f'<p class="axis">{label}</p><ul>')
+        if cell:
+            html.extend(render_item(i, compact=True) for i in cell)
+        else:
+            html.append('<li class="empty">비어 있음</li>')
+        html.append("</ul></section>")
+    html.append("</div>")
+
+    rest = [i for i in items if i["quadrant"] is None]
+    if rest:
+        html.append(
+            f'<section class="group unsorted"><h2>미분류<i></i>{len(rest)}</h2>'
+            '<p class="hint">항목마다 1~4를 눌러 사분면에 넣는다. 아침 10분이면 끝난다.</p><ul>'
+        )
+        html.extend(render_item(i) for i in rest)
+        html.append("</ul></section>")
+    return "".join(html)
+
+
+def render_dates(items):
     today = date.today()
-    items.sort(key=lambda i: (i["due"] is None, i["due"] or today, i["tag"]))
     groups = {g: [] for g in GROUPS}
     later = 0
     for i in items:
@@ -228,26 +350,7 @@ def build_body():
         else:
             groups[b].append(i)
 
-    late = len(groups["지난 것"])
-    line = f'오늘 {len(groups["오늘"])}건'
-    if late:
-        line += f', <span class="warn">지난 것 {late}건</span>'
-
-    tray_btn = '<button class="txt" onclick="minimize()">트레이로</button>' if TRAY_AVAILABLE else ""
-
-    html = [
-        '<div class="bar"><h1>할 일</h1>',
-        f'<span class="sub">{line}</span>',
-        '<span class="acts">',
-        '<button class="txt" onclick="toggleAdd()">추가</button>',
-        '<button class="txt" onclick="refresh()">새로고침</button>',
-        tray_btn,
-        '<button class="txt" onclick="quitApp()" aria-label="종료">종료</button>',
-        "</span></div>",
-        ADD_FORM,
-    ]
-    if not items:
-        html.append(render_notice("비어 있다", "위 '추가'를 누르거나 클로드에 할 일을 말하면 여기 올라온다."))
+    html = []
     for name in GROUPS:
         if not groups[name]:
             continue
@@ -260,58 +363,126 @@ def build_body():
     return "".join(html)
 
 
+def build_body():
+    if not TOKEN:
+        return render_notice(
+            "토큰이 아직 비어 있다",
+            f"{ENV_PATH.name} 파일을 만들어 NOTION_TODO_TOKEN=토큰값 을 한 줄 적고 위젯을 다시 실행한다. "
+            f"({SCRIPT_DIR} 폴더에 .env.example 참고)",
+        )
+    try:
+        items = load_items()
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return render_notice("토큰이 거부됐다", "노션 Integration 설정에서 토큰을 다시 복사한다.")
+        if e.code == 404:
+            return render_notice(
+                "DB를 못 찾는다",
+                "업무와 개인 DB 각각에서 ... > 연결 을 열고 이 Integration을 추가한다.",
+            )
+        return render_notice(f"노션이 {e.code}를 반환했다", "잠시 후 새로고침한다.")
+    except OSError:
+        return render_notice("노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다.")
+
+    html = [render_bar(items)]
+    if not items:
+        html.append(render_notice("비어 있다", "위 '추가'를 누르거나 클로드에 할 일을 말하면 여기 올라온다."))
+    elif view_mode == "matrix":
+        html.append(render_matrix(items))
+    else:
+        html.append(render_dates(items))
+    return "".join(html)
+
+
 SHELL = """<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
-:root{--ink:#16202b;--panel:#1b2734;--line:#2a3b4b;--text:#dae3ea;--muted:#7d93a4;--warn:#f2b134;--accent:#f2b134}
+:root{--ink:#16202b;--panel:#1b2734;--line:#2a3b4b;--text:#dae3ea;--muted:#7d93a4;
+  --warn:#f2b134;--accent:#f2b134;--q1:#e5636b;--q2:#5b9dd9;--q3:#f2b134;--q4:#6b7f8e}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;padding:0 0 16px;background:var(--ink);color:var(--text);
+body{margin:0;padding:0 0 14px;background:var(--ink);color:var(--text);
   font-family:"Malgun Gothic","Segoe UI",system-ui,sans-serif;font-size:13px;
   -webkit-user-select:none;overflow-y:auto}
 body::-webkit-scrollbar{width:6px}
 body::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
-.bar{display:flex;align-items:baseline;gap:8px;padding:12px 14px 4px;flex-wrap:wrap}
+.bar{display:flex;align-items:baseline;gap:8px;padding:12px 12px 4px;flex-wrap:wrap}
 .bar h1{margin:0;font-size:14px;font-weight:700;letter-spacing:-.01em}
 .sub{font-size:11px;color:var(--muted)}
 .warn{color:var(--warn)}
+.muted{color:var(--muted)}
 .acts{margin-left:auto;display:flex;gap:2px;flex-wrap:wrap}
 button{border:0;background:none;font:inherit;cursor:pointer;padding:0}
 .txt{color:var(--muted);font-size:11px;padding:3px 6px;border-radius:4px;white-space:nowrap}
 .txt:hover{color:var(--text);background:var(--panel)}
 .txt.primary{color:var(--ink);background:var(--accent);font-weight:700}
-.txt.primary:hover{filter:brightness(1.05)}
 button:focus-visible{outline:1px solid var(--muted);outline-offset:1px}
-.addform{margin:8px 14px 4px;padding:10px;background:var(--panel);border-radius:8px;
+.addform{margin:8px 12px 4px;padding:10px;background:var(--panel);border-radius:8px;
   display:flex;flex-direction:column;gap:6px}
 .addform input,.addform select{font:inherit;font-size:12px;color:var(--text);
   background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:6px 8px}
 .addform input[type=text]{width:100%}
-.addrow{display:flex;gap:6px}
-.addrow select{flex:none}
-.addrow input[type=date]{flex:1;min-width:0}
-.addbtns{display:flex;justify-content:flex-end;gap:4px}
-.group{padding:0 14px}
+.addrow{display:flex;gap:6px;align-items:center}
+.addrow select,.addrow input[type=date]{flex:1;min-width:0}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px 12px 0}
+@media (max-width:339px){.grid{grid-template-columns:1fr}}
+.cell{background:var(--panel);border-radius:8px;padding:8px;border-top:2px solid var(--line);
+  min-width:0}
+.cell.q1{border-top-color:var(--q1)}
+.cell.q2{border-top-color:var(--q2)}
+.cell.q3{border-top-color:var(--q3)}
+.cell.q4{border-top-color:var(--q4)}
+.cell h3{margin:0;font-size:11px;font-weight:700;display:flex;gap:6px;align-items:baseline}
+.cell h3 .n{margin-left:auto;color:var(--muted);font-weight:400}
+.cell .axis{margin:1px 0 6px;font-size:9px;color:var(--muted)}
+.cell .empty{color:var(--muted);font-size:10px;padding:2px 0;list-style:none}
+.cell .item{gap:6px;padding:4px 0}
+.cell .t{font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+
+.pinned{margin:8px 12px 0;padding:8px 10px;background:var(--panel);border-radius:8px;
+  border-left:2px solid var(--accent)}
+.pinned h2{display:flex;align-items:center;gap:8px;margin:0 0 2px;
+  font-size:11px;font-weight:700;color:var(--accent)}
+.pinned h2 i{flex:1;height:1px;background:var(--line)}
+.group{padding:0 12px}
 .group h2{display:flex;align-items:center;gap:8px;margin:14px 0 2px;
   font-size:11px;font-weight:700;color:var(--muted)}
 .group h2 i{flex:1;height:1px;background:var(--line)}
 .group.past h2{color:var(--warn)}
+.group .hint{margin:2px 0 4px;font-size:10px;color:var(--muted)}
+.later{margin:14px 12px;font-size:11px;color:var(--muted)}
 ul{margin:0;padding:0;list-style:none}
-.item{display:flex;gap:8px;align-items:flex-start;padding:7px 0;
+.item{display:flex;gap:8px;align-items:flex-start;padding:6px 0;
   border-bottom:1px solid rgba(255,255,255,.04)}
 .item:last-child{border-bottom:0}
-.chk{flex:none;width:14px;height:14px;margin-top:3px;border-radius:3px;
+.item.waiting .t{color:var(--muted)}
+.item.waiting .t::before{content:"대기 ";color:var(--q2);font-size:10px}
+.chk{flex:none;width:14px;height:14px;margin-top:2px;border-radius:3px;
   border:1.5px solid var(--line)}
 .chk:hover{border-color:var(--warn);background:rgba(242,177,52,.18)}
-.t{flex:1;line-height:1.45;min-width:0}
-.tag{display:inline-block;margin-right:6px;padding:1px 5px;border-radius:3px;
-  background:var(--panel);color:var(--muted);font-size:10px;vertical-align:1px}
+.t{flex:1;line-height:1.4;min-width:0;overflow-wrap:anywhere}
+.tag{display:inline-block;margin-right:5px;padding:1px 5px;border-radius:3px;
+  background:var(--ink);color:var(--muted);font-size:10px;vertical-align:1px}
 .tag.personal{color:#8fb3a8}
-.memo{display:block;margin-top:2px;font-size:11px;color:var(--muted);line-height:1.4}
-.d{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
-.del{flex:none;width:16px;height:16px;margin-top:2px;color:var(--muted);font-size:14px;
+.memo{display:block;margin-top:2px;font-size:11px;color:var(--muted);line-height:1.35}
+.d{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
+.tools{flex:none;display:flex;align-items:center;gap:1px;opacity:0;transition:opacity .12s}
+.item:hover .tools,.item:focus-within .tools{opacity:1}
+.star{width:15px;height:15px;color:var(--line);font-size:11px;line-height:1;border-radius:3px}
+.star.on{color:var(--accent);opacity:1}
+.item .star.on{opacity:1}
+.item .tools:has(.star.on){opacity:1}
+.star:hover{color:var(--accent)}
+.pri{display:flex;gap:1px}
+.pri button{width:14px;height:15px;font-size:9px;color:var(--muted);border-radius:3px;
+  background:rgba(255,255,255,.04)}
+.pri .p1:hover,.pri .p1.on{background:var(--q1);color:#fff}
+.pri .p2:hover,.pri .p2.on{background:var(--q2);color:#fff}
+.pri .p3:hover,.pri .p3.on{background:var(--q3);color:var(--ink)}
+.pri .p4:hover,.pri .p4.on{background:var(--q4);color:#fff}
+.del{flex:none;width:15px;height:15px;color:var(--muted);font-size:13px;
   line-height:1;border-radius:3px}
-.del:hover{color:#e5636b;background:rgba(229,99,107,.15)}
-.later{margin:16px;font-size:11px;color:var(--muted)}
-.notice{margin:20px 14px;padding:14px;background:var(--panel);border-radius:6px;line-height:1.5}
+.del:hover{color:var(--q1);background:rgba(229,99,107,.15)}
+.notice{margin:20px 12px;padding:14px;background:var(--panel);border-radius:6px;line-height:1.5}
 .notice b{display:block;margin-bottom:4px}
 .notice p{margin:0;font-size:12px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -319,9 +490,13 @@ ul{margin:0;padding:0;list-style:none}
 <script>
 const root = () => document.getElementById('root');
 async function refresh(){ root().innerHTML = await pywebview.api.body(); }
+async function swap(){ root().innerHTML = await pywebview.api.swap(); }
 async function done(id){ root().innerHTML = await pywebview.api.done(id); }
+async function setPri(id, q){ root().innerHTML = await pywebview.api.setpri(id, q); }
+async function star(id, on){ root().innerHTML = await pywebview.api.star(id, on); }
 function toggleAdd(show){
   const f = document.getElementById('addform');
+  if (!f) return;
   f.hidden = show === false ? true : !f.hidden;
   if (!f.hidden) document.getElementById('addtitle').focus();
 }
@@ -329,14 +504,12 @@ async function submitAdd(){
   const title = document.getElementById('addtitle').value.trim();
   if (!title) return;
   const tag = document.getElementById('addtag').value;
+  const pri = document.getElementById('addpri').value;
   const due = document.getElementById('adddue').value;
-  root().innerHTML = await pywebview.api.add(title, tag, due);
+  root().innerHTML = await pywebview.api.add(title, tag, due, pri);
 }
 function askDelete(btn, id){
-  if (btn.dataset.armed){
-    doDelete(id);
-    return;
-  }
+  if (btn.dataset.armed){ doDelete(id); return; }
   btn.dataset.armed = '1';
   btn.textContent = '✓';
   btn.title = '다시 누르면 삭제';
@@ -355,10 +528,12 @@ tray_icon = None
 def make_tray_image():
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((3, 3, 60, 60), radius=14, fill=(22, 32, 43, 255))
-    d.rounded_rectangle((3, 3, 60, 60), radius=14, outline=(242, 177, 52, 255), width=3)
-    d.line((18, 33, 27, 43), fill=(242, 177, 52, 255), width=5)
-    d.line((27, 43, 46, 21), fill=(242, 177, 52, 255), width=5)
+    d.rounded_rectangle((3, 3, 60, 60), radius=12, fill=(22, 32, 43, 255))
+    # 4사분면을 그대로 아이콘으로 쓴다.
+    d.rectangle((8, 8, 30, 30), fill=(229, 99, 107, 255))
+    d.rectangle((34, 8, 56, 30), fill=(91, 157, 217, 255))
+    d.rectangle((8, 34, 30, 56), fill=(242, 177, 52, 255))
+    d.rectangle((34, 34, 56, 56), fill=(107, 127, 142, 255))
     return img
 
 
@@ -388,57 +563,58 @@ def start_tray():
     tray_icon.run()
 
 
+def guarded(fn, *args):
+    """노션 호출을 감싸고, 실패하면 안내 화면을 돌려준다."""
+    try:
+        fn(*args)
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            return render_notice(
+                "권한이 없다",
+                "노션 Integration 설정에서 Update content와 Insert content를 켜고 위젯을 다시 실행한다.",
+            )
+        return render_notice(f"노션이 {e.code}를 반환했다", "새로고침 후 다시 시도한다.")
+    except OSError:
+        return render_notice("노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다.")
+    return build_body()
+
+
 class Api:
     def body(self):
         return build_body()
 
-    def done(self, page_id):
-        try:
-            complete(page_id)
-        except urllib.error.HTTPError as e:
-            if e.code == 403:
-                return render_notice(
-                    "완료 처리 권한이 없다",
-                    "노션 Integration 설정에서 Update content를 켜고 위젯을 다시 실행한다.",
-                )
-            return render_notice(f"노션이 {e.code}를 반환했다", "새로고침 후 다시 시도한다.")
-        except OSError:
-            return render_notice("노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다.")
+    def swap(self):
+        global view_mode
+        view_mode = "dates" if view_mode == "matrix" else "matrix"
         return build_body()
 
-    def add(self, title, tag, due):
+    def done(self, page_id):
+        return guarded(complete, page_id)
+
+    def setpri(self, page_id, quadrant):
+        if quadrant not in QUADRANT_NAMES:
+            quadrant = None
+        return guarded(set_priority, page_id, quadrant)
+
+    def star(self, page_id, on):
+        return guarded(set_today, page_id, bool(on))
+
+    def waiting(self, page_id, on):
+        return guarded(set_waiting, page_id, bool(on))
+
+    def add(self, title, tag, due, quadrant=None):
         title = (title or "").strip()
         if not title:
             return build_body()
         if tag not in SOURCE_IDS:
             tag = SOURCES[0][0]
+        if quadrant not in QUADRANT_NAMES:
+            quadrant = None
         due = (due or "").strip() or None
-        try:
-            create(tag, title, due)
-        except urllib.error.HTTPError as e:
-            if e.code == 403:
-                return render_notice(
-                    "추가할 권한이 없다",
-                    "노션 Integration 설정에서 Insert content를 켜고 위젯을 다시 실행한다.",
-                )
-            return render_notice(f"노션이 {e.code}를 반환했다", "새로고침 후 다시 시도한다.")
-        except OSError:
-            return render_notice("노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다.")
-        return build_body()
+        return guarded(create, tag, title, due, quadrant)
 
     def remove(self, page_id):
-        try:
-            trash(page_id)
-        except urllib.error.HTTPError as e:
-            if e.code == 403:
-                return render_notice(
-                    "삭제할 권한이 없다",
-                    "노션 Integration 설정에서 Update content를 켜고 위젯을 다시 실행한다.",
-                )
-            return render_notice(f"노션이 {e.code}를 반환했다", "새로고침 후 다시 시도한다.")
-        except OSError:
-            return render_notice("노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다.")
-        return build_body()
+        return guarded(trash, page_id)
 
     def minimize(self):
         if TRAY_AVAILABLE:
@@ -454,8 +630,8 @@ class Api:
 window = webview.create_window(
     "할 일",
     html=SHELL.replace("__BODY__", build_body()),
-    width=300,
-    height=460,
+    width=380,
+    height=520,
     min_size=(260, 320),
     resizable=True,
     on_top=True,
