@@ -52,6 +52,23 @@ else:
 ENV_PATH = SCRIPT_DIR / ".env"
 
 
+def asset_path(name):
+    """아이콘 같은 동봉 파일을 찾는다. 없으면 None.
+
+    exe 옆 assets/를 먼저 본다. 그래야 다시 빌드하지 않고도
+    파일만 갈아끼워 아이콘을 바꿀 수 있다.
+    그 다음이 exe 안에 묶여 들어간 사본(PyInstaller가 푸는 _MEIPASS)이다.
+    """
+    candidates = [SCRIPT_DIR / "assets" / name]
+    bundled = getattr(sys, "_MEIPASS", None)
+    if bundled:
+        candidates.append(Path(bundled) / "assets" / name)
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
 def load_token():
     """환경변수를 먼저 보고, 없으면 스크립트(또는 exe) 옆 .env 파일에서 읽는다.
 
@@ -589,6 +606,13 @@ tray_icon = None
 
 
 def make_tray_image():
+    """트레이 아이콘. assets/app.png가 있으면 그걸 쓴다."""
+    png = asset_path("app.png")
+    if png:
+        try:
+            return Image.open(png).convert("RGBA")
+        except OSError:
+            pass  # 그림이 깨져 있으면 아래 기본 그림으로 넘어간다
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((3, 3, 60, 60), radius=12, fill=(22, 32, 43, 255))

@@ -15,7 +15,12 @@ $ErrorActionPreference = "Stop"
 pip install --quiet -r requirements.txt
 pip install --quiet pyinstaller
 
+# assets\app.png -> assets\app.ico (16~256px를 한 파일에 담는다)
+python make_icon.py
+
 pyinstaller --noconfirm --onefile --windowed --name TodoWidget `
+    --icon assets\app.ico `
+    --add-data "assets;assets" `
     --hidden-import clr_loader `
     --hidden-import pythonnet `
     todo_widget.py
@@ -28,8 +33,16 @@ if (Test-Path .env) {
     Write-Host ".env가 아직 없다. dist\.env.example을 dist\.env로 복사해 토큰을 채운다."
 }
 
+# exe 옆에도 아이콘을 풀어둔다. 이걸 갈아끼우면 다시 빌드하지 않고도
+# 트레이 아이콘이 바뀐다.
+New-Item -ItemType Directory -Force -Path dist\assets | Out-Null
+Copy-Item assets\app.png dist\assets\app.png -Force -ErrorAction SilentlyContinue
+Copy-Item assets\app.ico dist\assets\app.ico -Force
+
 Write-Host ""
 Write-Host "완료: dist\TodoWidget.exe"
 Write-Host "이제부터는 파이썬 설치 없이 이 exe를 더블클릭하면 위젯이 뜬다."
+Write-Host "아이콘이 예전 것으로 보이면 바탕화면에서 F5, 그래도 그대로면"
+Write-Host "  ie4uinit.exe -show  를 한 번 돌려 아이콘 캐시를 비운다."
 Write-Host "시작프로그램에 등록하려면 dist\TodoWidget.exe의 바로가기를 만들어"
 Write-Host "  Win+R -> shell:startup 폴더에 넣는다."

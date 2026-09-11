@@ -1,3 +1,6 @@
 scripts/.env
 __pycache__/
 *.pyc
+
+# make_icon.py가 app.png에서 구워내는 결과물이라 소스에 둘 필요가 없다
+scripts/assets/app.ico
