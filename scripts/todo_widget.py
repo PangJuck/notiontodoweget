@@ -514,24 +514,28 @@ class Api:
         return guarded(trash, page_id)
 
     def resize(self, width, height):
-        window.resize(int(width), int(height))
+        # 창을 직접 건드리는 이 네 개는 백그라운드 스레드로 넘긴다.
+        # js_api 호출 안에서 곧장 부르면, WebView2가 이 호출의 응답을
+        # 기다리는 와중에 창 쪽도 같은 스레드의 응답을 기다리게 되어
+        # 서로 물려 위젯이 멈춘다 (항상 위 체크 해제 시 실제로 발생했다).
+        threading.Thread(target=window.resize, args=(int(width), int(height)), daemon=True).start()
         return {"ok": True}
 
     def ontop(self, on):
-        window.on_top = bool(on)
+        threading.Thread(target=lambda: setattr(window, "on_top", bool(on)), daemon=True).start()
         return {"ok": True}
 
     def minimize(self):
         # 트레이가 없으면 숨길 수 없다. 되살릴 방법이 없어진다.
         if TRAY_AVAILABLE:
-            window.hide()
+            threading.Thread(target=window.hide, daemon=True).start()
         return {"ok": True}
 
     def quit(self):
         if TRAY_AVAILABLE:
-            quit_app()
+            threading.Thread(target=quit_app, daemon=True).start()
         else:
-            window.destroy()
+            threading.Thread(target=window.destroy, daemon=True).start()
         return {"ok": True}
 
 
