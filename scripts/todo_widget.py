@@ -26,6 +26,7 @@ Insert content가 모두 필요하다.
 할 수 있기 때문이다.
 """
 
+import ctypes
 import json
 import os
 import re
@@ -109,6 +110,36 @@ def load_token():
 
 
 TOKEN = load_token()
+
+WINDOW_TITLE = "할 일"
+_instance_mutex = None  # 이 변수가 살아있는 동안만 뮤텍스가 유지된다
+
+
+def ensure_single_instance():
+    """이미 떠 있으면 그 창을 앞으로 불러오고 이 프로세스는 바로 끝낸다.
+
+    시작프로그램 등록과 바로가기 직접 실행이 겹치거나, 트레이로 숨겨둔
+    걸 잊고 또 실행하면 위젯이 계속 늘어난다. Windows 뮤텍스 하나로
+    한 시점에 하나만 뜨게 막는다.
+    """
+    if sys.platform != "win32":
+        return
+    kernel32 = ctypes.windll.kernel32
+    ERROR_ALREADY_EXISTS = 183
+    mutex = kernel32.CreateMutexW(None, False, "NotionTodoWidget_SingleInstance")
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        user32 = ctypes.windll.user32
+        SW_SHOW = 5
+        hwnd = user32.FindWindowW(None, WINDOW_TITLE)
+        if hwnd:
+            user32.ShowWindow(hwnd, SW_SHOW)
+            user32.SetForegroundWindow(hwnd)
+        sys.exit(0)
+    global _instance_mutex
+    _instance_mutex = mutex  # 핸들을 계속 들고 있어야 프로세스가 끝날 때까지 뮤텍스가 유지된다
+
+
+ensure_single_instance()
 
 SOURCES = [
     ("업무", "0e928040351d4fdfae49f77e67e914e6"),
@@ -540,7 +571,7 @@ class Api:
 
 
 window = webview.create_window(
-    "할 일",
+    WINDOW_TITLE,
     html=SHELL,
     width=360,
     height=560,
