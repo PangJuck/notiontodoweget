@@ -212,7 +212,7 @@ function renderLog(){
 }
 
 /* 창 높이에 맞춰, 칸에 들어갈 만큼만 남기고 나머지는 더보기로 접는다.
-   창을 키우면 저절로 더 보인다. */
+   창을 키우면 저절로 더 보인다. (위젯 전용 — 웹은 아래 fitCellsWeb) */
 function fitCells(){
   const grid = body.querySelector(".grid");
   if (!grid) return;
@@ -221,6 +221,8 @@ function fitCells(){
 
   // 1열로 접힌 좁은 상태에서는 굳이 자르지 않는다. 어차피 세로로 훑는다
   if (widget.classList.contains("narrow")) return;
+
+  if (!Backend.chrome){ fitCellsWeb(grid); return; }
 
   const pinned = body.querySelector(".pinned-box");
   const unsorted = body.querySelector(".unsorted");
@@ -269,12 +271,36 @@ function fitCells(){
   });
 }
 
-function moreBtn(n, hidden){
+function moreBtn(n, hidden, onClick){
   const b = document.createElement("button");
   b.className = "more";
   b.textContent = hidden > 0 ? `+${hidden}개 더보기` : "접기";
-  b.addEventListener("click", () => expand(n));
+  b.addEventListener("click", onClick || (() => expand(n)));
   return b;
+}
+
+/* 웹은 화면이 넓어서 높이에 맞춰 자동으로 숨기면 오히려 놓치기 쉽다.
+   기본은 전부 펼치고(스크롤은 생겨도 된다), 눌렀을 때만 접는다. */
+const WEB_COLLAPSE_SHOW = 2; // 접었을 때 남기는 개수
+let webCollapsed = new Set();
+
+function toggleWebCollapse(n){
+  webCollapsed.has(n) ? webCollapsed.delete(n) : webCollapsed.add(n);
+  render();
+}
+
+function fitCellsWeb(grid){
+  grid.querySelectorAll(".cell").forEach(cell => {
+    const n = +cell.dataset.q;
+    const lis = [...cell.querySelectorAll(".item")];
+    if (lis.length <= WEB_COLLAPSE_SHOW) return; // 접을 이유가 없다
+    if (webCollapsed.has(n)){
+      for (let i = WEB_COLLAPSE_SHOW; i < lis.length; i++) lis[i].hidden = true;
+      cell.appendChild(moreBtn(n, lis.length - WEB_COLLAPSE_SHOW, () => toggleWebCollapse(n)));
+    } else {
+      cell.appendChild(moreBtn(n, 0, () => toggleWebCollapse(n)));
+    }
+  });
 }
 
 function render(){
