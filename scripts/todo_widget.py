@@ -306,6 +306,12 @@ def set_waiting(page_id, on):
     patch(page_id, {"대기중": {"checkbox": bool(on)}})
 
 
+def set_memo(page_id, text):
+    text = (text or "").strip()
+    rich = [{"text": {"content": text[:2000]}}] if text else []
+    patch(page_id, {"메모": {"rich_text": rich}})
+
+
 def create(tag, title, due, quadrant):
     properties = {
         "할 일": {"title": [{"text": {"content": title[:2000]}}]},
@@ -528,6 +534,9 @@ class Api:
 
     def waiting(self, page_id, on):
         return guarded(set_waiting, page_id, bool(on))
+
+    def setmemo(self, page_id, text):
+        return guarded(set_memo, page_id, text)
 
     def add(self, title, tag, due, quadrant=None):
         title = (title or "").strip()

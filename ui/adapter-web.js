@@ -18,7 +18,7 @@
   }
 
   const METHODS = [
-    "data", "log", "done", "undo", "setpri", "star", "waiting", "add", "remove",
+    "data", "log", "done", "undo", "setpri", "star", "waiting", "setmemo", "add", "remove",
   ];
   const backend = { chrome: false };
   METHODS.forEach(name => { backend[name] = (...args) => call(name, args); });

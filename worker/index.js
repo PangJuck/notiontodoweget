@@ -227,6 +227,12 @@ async function setWaiting(token, pageId, on) {
   await patch(token, pageId, { 대기중: { checkbox: !!on } });
 }
 
+async function setMemo(token, pageId, text) {
+  text = (text || "").trim();
+  const rich = text ? [{ text: { content: text.slice(0, 2000) } }] : [];
+  await patch(token, pageId, { 메모: { rich_text: rich } });
+}
+
 async function createItem(token, tag, title, due, quadrant) {
   const properties = {
     "할 일": { title: [{ text: { content: title.slice(0, 2000) } }] },
@@ -288,6 +294,7 @@ const HANDLERS = {
     }),
   star: (token, [pageId, on]) => guarded(token, () => setTodayFlag(token, pageId, !!on)),
   waiting: (token, [pageId, on]) => guarded(token, () => setWaiting(token, pageId, !!on)),
+  setmemo: (token, [pageId, text]) => guarded(token, () => setMemo(token, pageId, text)),
   add: async (token, [title, tag, due, quadrant]) => {
     title = (title || "").trim();
     if (!title) return { ok: false, error: "할 일을 적어주세요", hint: "" };

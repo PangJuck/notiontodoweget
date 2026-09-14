@@ -222,6 +222,24 @@ ul{list-style:none;margin:0;padding:0}
   width:16px;height:16px;border-radius:4px;padding:0;line-height:1;
 }
 .wbtn:hover,.wbtn.on{color:var(--q2)}
+.memobtn{
+  border:0;background:none;cursor:pointer;color:var(--line);font-size:10px;
+  width:16px;height:16px;border-radius:4px;padding:0;line-height:1;
+}
+.memobtn:hover,.memobtn.on{color:var(--accent)}
+.memo-edit{margin-top:5px;display:flex;flex-direction:column;gap:4px}
+.memo-edit textarea{
+  width:100%;min-height:50px;resize:vertical;box-sizing:border-box;
+  font:inherit;font-size:11px;color:var(--text);background:var(--ink);
+  border:1px solid var(--line);border-radius:6px;padding:5px 7px;
+}
+.memo-edit textarea:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+.memo-edit-btns{display:flex;gap:5px;justify-content:flex-end}
+.memo-edit-btns button{
+  border:0;border-radius:5px;padding:3px 9px;cursor:pointer;font:inherit;font-size:10.5px;
+}
+.memo-edit-btns button:first-child{background:var(--accent);color:#15202b;font-weight:700}
+.memo-edit-btns button:last-child{background:none;color:var(--muted)}
 .del{
   border:0;background:none;cursor:pointer;color:var(--muted);font-size:14px;
   width:16px;height:16px;border-radius:4px;padding:0;line-height:1;

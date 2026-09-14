@@ -156,6 +156,8 @@ async function pullLog(){
 }
 
 /* ── 그리기 ───────────────────────────── */
+let editingMemo = null; // 지금 메모를 고치고 있는 항목 id
+
 function tools(it){
   const pri = Q.map(q =>
     `<button class="p${q.n}${it.q===q.n?" on":""}" title="${esc(q.n+" "+q.name+" ("+q.axis+")")}"
@@ -164,20 +166,36 @@ function tools(it){
     <button class="star${it.today?" on":""}" title="오늘의 3" onclick="star('${it.id}')">&#9733;</button>
     <span class="pri">${pri}</span>
     <button class="wbtn${it.wait?" on":""}" title="대기중" onclick="wait('${it.id}')">&#9203;</button>
+    <button class="memobtn${it.memo?" on":""}" title="메모" onclick="toggleMemo('${it.id}')">&#9998;</button>
     <button class="del" title="삭제" onclick="del('${it.id}')">&#215;</button>
   </span>`;
 }
 
-function row(it, compact){
+function memoEditor(it){
+  return `<div class="memo-edit">
+    <textarea data-id="${esc(it.id)}" placeholder="메모">${esc(it.memo || "")}</textarea>
+    <div class="memo-edit-btns">
+      <button type="button" onclick="saveMemo('${it.id}')">저장</button>
+      <button type="button" onclick="cancelMemo()">취소</button>
+    </div>
+  </div>`;
+}
+
+function row(it, compact, pinned){
   const over = it.due && it.due < TODAY;
   const tag = compact ? "" : `<span class="tag${it.tag==="개인"?" personal":""}">${esc(it.tag)}</span>`;
-  const memo = (!compact && it.memo) ? `<span class="memo">${esc(it.memo)}</span>` : "";
+  const memo = it.memo ? `<span class="memo">${esc(it.memo)}</span>` : "";
   const wait = it.wait ? `<span class="wait">대기</span>` : "";
   const dt = it.due ? `<span class="dt${over?" over":""}">${md(it.due)}</span>` : "";
+  // 오늘의 3에 고정된 항목은 위 고정칸과 사분면 칸에 동시에 나온다.
+  // 편집창을 양쪽 다 띄우면 data-id가 겹쳐 저장이 엉뚱한 쪽에서 읽힌다.
+  // 고정칸 쪽은 편집창을 띄우지 않는다 — 칸 쪽에서 열린다.
+  const edit = (editingMemo === it.id && !pinned) ? memoEditor(it) : "";
   return `<li class="item${it.wait?" waiting":""}" data-id="${esc(it.id)}">
     <button class="chk" title="완료" onclick="complete('${it.id}')"></button>
     <span class="t" title="${esc(it.title)}">${wait}${tag}${esc(it.title)}${dt}${memo}</span>
     ${tools(it)}
+    ${edit}
   </li>`;
 }
 
@@ -196,7 +214,7 @@ function renderMatrix(){
   const pin = list.filter(i => i.today);
   if (pin.length){
     h += `<div class="pinned-box"><h3>오늘 끝낼 것<span class="rule"></span>
-      <span class="cnt">${pin.length}/3</span></h3><ul>${pin.map(i=>row(i,false)).join("")}</ul></div>`;
+      <span class="cnt">${pin.length}/3</span></h3><ul>${pin.map(i=>row(i,false,true)).join("")}</ul></div>`;
   }
   // 순서(칸 위치, 칸 안 항목)는 드래그로 바꿀 수 있고 위젯/웹 둘 다 기억한다.
   // 아직 아무것도 안 바꿨으면 기본 그대로(1~4 순서, 마감 가까운 순)다.
@@ -388,6 +406,7 @@ function wireDrag(grid){
   grid.querySelectorAll(".cell ul").forEach(ul => {
     const qn = +ul.closest(".cell").dataset.q;
     ul.querySelectorAll(".item").forEach(li => {
+      if (li.querySelector(".memo-edit")) return; // 메모 입력 중인 항목은 텍스트 선택과 겹치니 뺀다
       li.draggable = true;
       li.addEventListener("dragstart", e => {
         e.dataTransfer.setData("text/item", li.dataset.id);
@@ -483,6 +502,27 @@ window.undo = (id) => {
 };
 window.expand = (n) => { expanded.has(n) ? expanded.delete(n) : expanded.add(n); render(); };
 
+window.toggleMemo = (id) => {
+  editingMemo = editingMemo === id ? null : id;
+  render();
+  if (editingMemo){
+    requestAnimationFrame(() => {
+      const ta = body.querySelector(`.memo-edit textarea[data-id="${CSS.escape(id)}"]`);
+      if (ta){ ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; }
+    });
+  }
+};
+window.cancelMemo = () => { editingMemo = null; render(); };
+window.saveMemo = (id) => {
+  const ta = body.querySelector(`.memo-edit textarea[data-id="${CSS.escape(id)}"]`);
+  const text = ta ? ta.value.trim() : "";
+  const it = find(id);
+  if (it) it.memo = text;
+  editingMemo = null;
+  render();
+  send("setmemo", id, text).then(schedulePull);
+};
+
 /* ── 추가 폼 ──────────────────────────── */
 function fillAddForm(){
   const tagSel = el("#a-tag");
@@ -520,7 +560,9 @@ el("#addform").addEventListener("submit", async (e) => {
   if (r && r.ok){ toast("추가했습니다."); pull(); }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !el("#addform").hidden) openAdd(false);
+  if (e.key !== "Escape") return;
+  if (!el("#addform").hidden) openAdd(false);
+  if (editingMemo) cancelMemo();
 });
 
 /* ── 탭 / 필터 ────────────────────────── */
