@@ -34,6 +34,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
+import webbrowser
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -567,6 +568,13 @@ class Api:
             threading.Thread(target=quit_app, daemon=True).start()
         else:
             threading.Thread(target=window.destroy, daemon=True).start()
+        return {"ok": True}
+
+    def openlink(self, url):
+        # 위젯 안(WebView2)은 target="_blank"를 그냥 무시하거나 안에서
+        # 새 창을 띄우려 든다. 시스템 기본 브라우저로 직접 연다.
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            webbrowser.open(url)
         return {"ok": True}
 
 

@@ -448,6 +448,15 @@ document.querySelectorAll(".rz").forEach(h => {
   h.addEventListener("pointercancel", stop);
 });
 
+/* 위젯 안 브라우저(WebView2)는 target="_blank"를 링크 클릭대로
+   처리해주지 않는다. 위젯일 때만 가로채 시스템 기본 브라우저로 연다.
+   웹에서는 그냥 새 탭으로 열리게 손대지 않는다. */
+el("#assistant-link").addEventListener("click", (e) => {
+  if (!Backend.chrome) return;
+  e.preventDefault();
+  Backend.openlink(el("#assistant-link").href);
+});
+
 window.addEventListener("resize", () => { syncNarrow(); if (tab === "matrix") fitCells(); });
 window.addEventListener("focus", () => { if (items.length) schedulePull(); });
 setInterval(() => { if (!document.hidden) pull(); }, 5 * 60 * 1000);

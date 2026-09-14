@@ -27,6 +27,7 @@
   backend.ontop = noop;
   backend.minimize = noop;
   backend.quit = noop;
+  backend.openlink = noop; // 웹은 <a target="_blank">가 이미 알아서 연다
   window.Backend = backend;
 
   const fire = () => document.dispatchEvent(new Event("backendready"));

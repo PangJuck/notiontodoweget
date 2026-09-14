@@ -4,7 +4,7 @@
 (function(){
   const METHODS = [
     "data", "log", "done", "undo", "setpri", "star", "waiting",
-    "add", "remove", "resize", "ontop", "minimize", "quit",
+    "add", "remove", "resize", "ontop", "minimize", "quit", "openlink",
   ];
 
   let readyResolve;
