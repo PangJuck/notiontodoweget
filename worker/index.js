@@ -315,7 +315,7 @@ async function renderShell(env, requestUrl) {
   ]);
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>할 일</title>
+<title>Ulick To-do</title>
 <style>
 ${css}
 </style></head><body>
