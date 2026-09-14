@@ -181,17 +181,19 @@ function memoEditor(it){
   </div>`;
 }
 
-function row(it, compact, pinned){
+function row(it, compact, pinned, rank){
   const over = it.due && it.due < TODAY;
   const tag = compact ? "" : `<span class="tag${it.tag==="개인"?" personal":""}">${esc(it.tag)}</span>`;
   const memo = it.memo ? `<span class="memo">${esc(it.memo)}</span>` : "";
   const wait = it.wait ? `<span class="wait">대기</span>` : "";
   const dt = it.due ? `<span class="dt${over?" over":""}">${md(it.due)}</span>` : "";
+  const num = rank ? `<span class="rank">${rank}</span>` : "";
   // 오늘의 3에 고정된 항목은 위 고정칸과 사분면 칸에 동시에 나온다.
   // 편집창을 양쪽 다 띄우면 data-id가 겹쳐 저장이 엉뚱한 쪽에서 읽힌다.
   // 고정칸 쪽은 편집창을 띄우지 않는다 — 칸 쪽에서 열린다.
   const edit = (editingMemo === it.id && !pinned) ? memoEditor(it) : "";
-  return `<li class="item${it.wait?" waiting":""}" data-id="${esc(it.id)}">
+  return `<li class="item${it.wait?" waiting":""}${edit?" editing":""}" data-id="${esc(it.id)}">
+    ${num}
     <button class="chk" title="완료" onclick="complete('${it.id}')"></button>
     <span class="t" title="${esc(it.title)}">${wait}${tag}${esc(it.title)}${dt}${memo}</span>
     ${tools(it)}
@@ -225,7 +227,7 @@ function renderMatrix(){
     h += `<section class="cell ${q.key}" data-q="${q.n}">
       <h3><span class="num">${q.n}</span>${esc(q.name)}
         <span class="axis">(${esc(q.axis)})</span><span class="cnt">${cell.length}</span></h3>
-      <ul>${cell.length ? cell.map(i=>row(i,true)).join("") : `<li class="empty">비어 있음</li>`}</ul>
+      <ul>${cell.length ? cell.map((i,idx)=>row(i,true,false,idx+1)).join("") : `<li class="empty">비어 있음</li>`}</ul>
     </section>`;
   }
   h += `</div>`;
@@ -414,21 +416,53 @@ function wireDrag(grid){
         e.stopPropagation(); // 칸 드래그와 겹치지 않게
         li.classList.add("dragging");
       });
-      li.addEventListener("dragend", () => li.classList.remove("dragging"));
+      li.addEventListener("dragend", () => { li.classList.remove("dragging"); clearDropMark(grid); });
     });
     ul.addEventListener("dragover", e => {
       if (!e.dataTransfer.types.includes("text/item")) return;
       e.preventDefault();
+      markDrop(grid, ul, e.clientY);
+    });
+    ul.addEventListener("dragleave", e => {
+      // ul 안의 자식으로 옮겨간 것뿐이면 표시를 지우지 않는다
+      if (!ul.contains(e.relatedTarget)) clearDropMark(grid);
     });
     ul.addEventListener("drop", e => {
       const id = e.dataTransfer.getData("text/item");
       if (!id) return;
       e.preventDefault();
-      const after = [...ul.querySelectorAll(".item:not(.dragging)")]
-        .find(li => e.clientY < li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2);
+      const after = dropTarget(ul, e.clientY);
+      clearDropMark(grid);
       reorderItem(qn, id, after ? after.dataset.id : null);
     });
   });
+}
+
+/* 커서 높이 기준으로 어느 항목 앞에 들어갈지 고른다.
+   맨 아래로 내리면 null — 끝에 붙인다는 뜻이다. */
+function dropTarget(ul, y){
+  return [...ul.querySelectorAll(".item:not(.dragging)")].find(li => {
+    const box = li.getBoundingClientRect();
+    return y < box.top + box.height / 2;
+  }) || null;
+}
+
+function clearDropMark(grid){
+  grid.querySelectorAll(".drop-before,.drop-after")
+    .forEach(li => li.classList.remove("drop-before", "drop-after"));
+}
+
+/* 들어갈 자리를 선 하나로 보여준다. 항목 사이면 그 항목 위쪽에,
+   맨 끝이면 마지막 항목 아래쪽에 긋는다. */
+function markDrop(grid, ul, y){
+  clearDropMark(grid);
+  const target = dropTarget(ul, y);
+  if (target){
+    target.classList.add("drop-before");
+    return;
+  }
+  const rest = [...ul.querySelectorAll(".item:not(.dragging)")];
+  if (rest.length) rest[rest.length - 1].classList.add("drop-after");
 }
 
 function render(){
