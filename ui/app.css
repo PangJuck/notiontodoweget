@@ -25,6 +25,10 @@ body{
 /* 제목줄 — 여기를 잡고 창을 옮긴다 */
 .bar{display:flex;align-items:center;gap:8px;padding:9px 10px 7px;flex:none}
 .bar h2{margin:0;font-size:14px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;flex:none}
+.bar .ver{
+  font-family:var(--mono);font-size:9px;color:var(--muted);opacity:.65;
+  flex:none;white-space:nowrap;
+}
 .bar .sub{
   font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;
   min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
