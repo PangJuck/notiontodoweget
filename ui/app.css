@@ -282,6 +282,11 @@ ul{list-style:none;margin:0;padding:0}
 }
 .assistant-link:hover{background:#f2c257}
 .widget.tight .assistant-link{margin-left:7px;margin-right:7px}
+
+/* 순서 드래그 (칸 위치, 칸 안 항목) */
+.cell h3{cursor:grab}
+.cell.drag-over{outline:2px dashed var(--accent);outline-offset:-2px}
+.item.dragging{opacity:.35}
 /* 웹판에는 없는 기능: 항상 위/트레이/종료는 OS 창을 다루고,
    크기 조절 손잡이는 브라우저가 대신 해준다 */
 .widget.web .pin,.widget.web #tray,.widget.web #quit,.widget.web .rz{display:none}

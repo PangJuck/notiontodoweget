@@ -45,6 +45,53 @@ function stepZoom(dir){
 el("#zoom-out").addEventListener("click", () => stepZoom(-1));
 el("#zoom-in").addEventListener("click", () => stepZoom(1));
 
+/* ── 순서 커스터마이즈 (위젯·웹 공통) ──────────────
+   1~4 칸 위치와 칸 안 항목 순서를 드래그로 바꿀 수 있다.
+   노션에는 손대지 않는다 — 이 창(브라우저면 그 브라우저, 위젯이면
+   그 컴퓨터)에서 보는 순서만 로컬에 따로 기억한다. */
+let webQuadOrder = [1, 2, 3, 4];
+let webItemOrder = {}; // {1: [id, id, ...], ...}
+
+function loadWebOrder(){
+  try {
+    const saved = JSON.parse(localStorage.getItem("todo-widget-order") || "{}");
+    if (Array.isArray(saved.quads) && new Set(saved.quads).size === 4
+        && saved.quads.every(n => [1,2,3,4].includes(n))) {
+      webQuadOrder = saved.quads;
+    }
+    if (saved.items && typeof saved.items === "object") webItemOrder = saved.items;
+  } catch (_) { /* 저장된 게 없거나 깨졌으면 기본 순서로 시작 */ }
+}
+function saveWebOrder(){
+  try {
+    localStorage.setItem("todo-widget-order", JSON.stringify({quads: webQuadOrder, items: webItemOrder}));
+  } catch (_) {}
+}
+function applyCustomOrder(list, qn){
+  const order = webItemOrder[qn] || [];
+  const byId = new Map(list.map(i => [i.id, i]));
+  const ordered = order.map(id => byId.get(id)).filter(Boolean);
+  const seen = new Set(ordered.map(i => i.id));
+  const rest = list.filter(i => !seen.has(i.id)).sort(dateSort);
+  return [...ordered, ...rest];
+}
+function reorderItem(qn, id, beforeId){
+  const current = applyCustomOrder(view().filter(i => i.q === qn), qn).map(i => i.id);
+  const without = current.filter(x => x !== id);
+  const at = beforeId ? without.indexOf(beforeId) : -1;
+  without.splice(at < 0 ? without.length : at, 0, id);
+  webItemOrder[qn] = without;
+  saveWebOrder();
+  render();
+}
+function swapQuadrants(a, b){
+  const ia = webQuadOrder.indexOf(a), ib = webQuadOrder.indexOf(b);
+  if (ia < 0 || ib < 0 || ia === ib) return;
+  [webQuadOrder[ia], webQuadOrder[ib]] = [webQuadOrder[ib], webQuadOrder[ia]];
+  saveWebOrder();
+  render();
+}
+
 /* ── 알림 ─────────────────────────────── */
 function toast(msg, hint, bad){
   const old = el(".toast");
@@ -127,11 +174,17 @@ function row(it, compact){
   const memo = (!compact && it.memo) ? `<span class="memo">${esc(it.memo)}</span>` : "";
   const wait = it.wait ? `<span class="wait">대기</span>` : "";
   const dt = it.due ? `<span class="dt${over?" over":""}">${md(it.due)}</span>` : "";
-  return `<li class="item${it.wait?" waiting":""}">
+  return `<li class="item${it.wait?" waiting":""}" data-id="${esc(it.id)}">
     <button class="chk" title="완료" onclick="complete('${it.id}')"></button>
     <span class="t" title="${esc(it.title)}">${wait}${tag}${esc(it.title)}${dt}${memo}</span>
     ${tools(it)}
   </li>`;
+}
+
+/* 마감이 가까운 순. 지난 것이 자연히 맨 위로 온다. 마감 없는 것은 뒤로 */
+function dateSort(a, b){
+  if (!a.due !== !b.due) return a.due ? -1 : 1;
+  return (a.due || "").localeCompare(b.due || "");
 }
 
 const view  = () => source === "all" ? items : items.filter(i => i.tag === source);
@@ -145,13 +198,12 @@ function renderMatrix(){
     h += `<div class="pinned-box"><h3>오늘 끝낼 것<span class="rule"></span>
       <span class="cnt">${pin.length}/3</span></h3><ul>${pin.map(i=>row(i,false)).join("")}</ul></div>`;
   }
+  // 순서(칸 위치, 칸 안 항목)는 드래그로 바꿀 수 있고 위젯/웹 둘 다 기억한다.
+  // 아직 아무것도 안 바꿨으면 기본 그대로(1~4 순서, 마감 가까운 순)다.
+  const quads = webQuadOrder.map(n => Q.find(q => q.n === n)).filter(Boolean);
   h += `<div class="grid">`;
-  for (const q of Q){
-    // 마감이 가까운 순. 지난 것이 자연히 맨 위로 온다. 마감 없는 것은 뒤로
-    const cell = list.filter(i => i.q === q.n).sort((a,b) => {
-      if (!a.due !== !b.due) return a.due ? -1 : 1;
-      return (a.due || "").localeCompare(b.due || "");
-    });
+  for (const q of quads){
+    const cell = applyCustomOrder(list.filter(i => i.q === q.n), q.n);
     h += `<section class="cell ${q.key}" data-q="${q.n}">
       <h3><span class="num">${q.n}</span>${esc(q.name)}
         <span class="axis">(${esc(q.axis)})</span><span class="cnt">${cell.length}</span></h3>
@@ -221,6 +273,8 @@ function fitCells(){
 
   // 1열로 접힌 좁은 상태에서는 굳이 자르지 않는다. 어차피 세로로 훑는다
   if (widget.classList.contains("narrow")) return;
+
+  wireDrag(grid); // 순서 드래그는 위젯·웹 공통
 
   if (!Backend.chrome){ fitCellsWeb(grid); return; }
 
@@ -300,6 +354,61 @@ function fitCellsWeb(grid){
     } else {
       cell.appendChild(moreBtn(n, 0, () => toggleWebCollapse(n)));
     }
+  });
+}
+
+/* 칸 제목을 잡으면 1~4 위치를 서로 바꾸고, 항목을 잡으면 같은 칸
+   안에서 순서를 바꾼다. 다른 칸으로 끌어다 놓는 건 안 받는다 —
+   사분면을 옮기는 건 이미 숫자 버튼(1~4)이 있다. */
+function wireDrag(grid){
+  grid.querySelectorAll(".cell").forEach(cell => {
+    const h3 = cell.querySelector("h3");
+    if (!h3 || h3.dataset.dragWired) return;
+    h3.dataset.dragWired = "1";
+    h3.draggable = true;
+    h3.addEventListener("dragstart", e => {
+      e.dataTransfer.setData("text/cell", cell.dataset.q);
+      e.dataTransfer.effectAllowed = "move";
+    });
+    cell.addEventListener("dragover", e => {
+      if (!e.dataTransfer.types.includes("text/cell")) return;
+      e.preventDefault();
+      cell.classList.add("drag-over");
+    });
+    cell.addEventListener("dragleave", () => cell.classList.remove("drag-over"));
+    cell.addEventListener("drop", e => {
+      cell.classList.remove("drag-over");
+      const from = e.dataTransfer.getData("text/cell");
+      if (!from) return;
+      e.preventDefault();
+      swapQuadrants(+from, +cell.dataset.q);
+    });
+  });
+
+  grid.querySelectorAll(".cell ul").forEach(ul => {
+    const qn = +ul.closest(".cell").dataset.q;
+    ul.querySelectorAll(".item").forEach(li => {
+      li.draggable = true;
+      li.addEventListener("dragstart", e => {
+        e.dataTransfer.setData("text/item", li.dataset.id);
+        e.dataTransfer.effectAllowed = "move";
+        e.stopPropagation(); // 칸 드래그와 겹치지 않게
+        li.classList.add("dragging");
+      });
+      li.addEventListener("dragend", () => li.classList.remove("dragging"));
+    });
+    ul.addEventListener("dragover", e => {
+      if (!e.dataTransfer.types.includes("text/item")) return;
+      e.preventDefault();
+    });
+    ul.addEventListener("drop", e => {
+      const id = e.dataTransfer.getData("text/item");
+      if (!id) return;
+      e.preventDefault();
+      const after = [...ul.querySelectorAll(".item:not(.dragging)")]
+        .find(li => e.clientY < li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2);
+      reorderItem(qn, id, after ? after.dataset.id : null);
+    });
   });
 }
 
@@ -492,6 +601,7 @@ setInterval(() => { if (!document.hidden) pull(); }, 5 * 60 * 1000);
 document.addEventListener("backendready", () => {
   widget.classList.toggle("web", !Backend.chrome);
   if (!Backend.chrome) { loadZoom(); applyZoom(); }
+  loadWebOrder(); // 순서 기억은 위젯·웹 공통
   syncNarrow();
   pull();
 });
