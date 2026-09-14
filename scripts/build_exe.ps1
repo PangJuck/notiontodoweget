@@ -40,6 +40,11 @@ New-Item -ItemType Directory -Force -Path dist\assets | Out-Null
 Copy-Item assets\app.png dist\assets\app.png -Force -ErrorAction SilentlyContinue
 Copy-Item assets\app.small.png dist\assets\app.small.png -Force -ErrorAction SilentlyContinue
 Copy-Item assets\app.ico dist\assets\app.ico -Force
+
+# dist\ui가 이미 있으면 Copy-Item -Recurse가 그 안에 ui\ui\로
+# 한 겹 더 넣어버려 바깥쪽 dist\ui는 옛날 그대로 남는다. 매번 통째로
+# 지우고 새로 복사해야 실제로 갱신된다.
+if (Test-Path dist\ui) { Remove-Item dist\ui -Recurse -Force }
 Copy-Item ..\ui dist\ui -Recurse -Force
 
 Write-Host ""
