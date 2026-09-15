@@ -42,6 +42,30 @@ claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-A
 
 **2.** 성공했으면 `claude mcp list` 로 `ulick-todo` 가 연결됐는지 확인해줘.
 
+**2-1.** 그리고 `~/.claude/commands/scmtodo.md` 파일을 아래 내용으로 만들어줘.
+(윈도우면 `C:\\Users\\<사용자>\\.claude\\commands\\scmtodo.md`. 폴더가 없으면 만든다.)
+이러면 어느 폴더에서든 `/scmtodo` 로 부를 수 있다.
+
+````markdown
+---
+description: Ulick To-do - 할 일 넣기, 보기, 끝내기
+argument-hint: [할 일이나 질문. 비우면 남은 할 일을 보여줍니다]
+---
+
+Ulick To-do(ulick-todo MCP 서버)로 처리한다.
+
+요청: $ARGUMENTS
+
+- 요청이 비어 있으면 list_todos로 내 남은 할 일을 사분면별로 보여준다.
+- 새 할 일이면 add_todo로 넣는다. 동사형으로 다듬고, 기한이 있으면 마감일에 넣고,
+  사분면을 정한다. 한 문장에 여러 건이 섞여 있으면 쪼갠다.
+- "끝냈어" 같은 말이면 list_todos로 그 항목을 찾아 complete_todo 한다.
+  어느 것인지 애매하면 후보를 보여주고 고르게 한다.
+- 동료 이름이 나오면 owner를 그 사람으로 지정해 조회한다.
+
+짧게 답한다. 넣거나 끝낸 것만 한 줄씩 보여주면 된다.
+````
+
 **3.** 연결됐으면 `list_todos` 를 한 번 불러서 지금 남은 할 일을 보여줘.
    (처음이면 비어 있는 게 정상이다.)
 
@@ -49,9 +73,10 @@ claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-A
 
    - **그냥 말하면 된다.** 명령어를 외울 필요 없다.
      "오늘 할 일 뭐 남았어?", "○○ 내일까지 넣어줘", "○○ 끝냈어"
-   - **슬래시 명령 두 개가 생겼다.** `/` 를 치고 `ulick` 이라고 치면 걸러진다.
-     `morning` = 아침 정리 (남은 일 훑고 오늘 끝낼 3개 고르기)
-     `evening` = 퇴근 정리 (오늘 한 일 정리, 내일 첫 일 정하기)
+   - **`/scmtodo` 로 부를 수 있다.** 뒤에 그냥 말을 붙이면 된다.
+     `/scmtodo 3PL 견적서 비교표 내일까지` / 비우고 엔터 치면 남은 할 일
+   - **아침·퇴근 정리도 슬래시로 있다.** `/` 치고 `ulick` 이라고 치면 걸러진다.
+     `morning` = 아침 정리, `evening` = 퇴근 정리
      목록에 안 보이면 Claude Code를 껐다 켜라고 알려줘.
    - **작업하다 미룬 일이 생기면 내가 먼저 물어본다.** "Ulick To-do에 넣어둘까요?"
      하고 한 줄로. 필요 없으면 아니라고 하면 되고, 그 세션에서 다시 묻지 않는다.
@@ -63,7 +88,21 @@ claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-A
 
 ## 쓰는 법
 
-### 하루의 시작과 끝 — 슬래시 명령
+### `/scmtodo` — 제일 빠른 길
+
+```
+/scmtodo 3PL 견적서 3곳 비교표 내일까지 만들기
+```
+
+뒤에 그냥 말을 붙이면 됩니다. **비우고 엔터**만 쳐도 남은 할 일을 보여줍니다.
+
+```
+/scmtodo                     남은 할 일 보기
+/scmtodo 위클리 양식 끝냈어    완료 처리
+/scmtodo 창준님 뭐 하고 있어?  동료 할 일 보기
+```
+
+### 하루의 시작과 끝
 
 Claude Code에서 **`/`** 를 치고 **`ulick`** 이라고 쳐보세요. 두 개가 뜹니다.
 
