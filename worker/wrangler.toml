@@ -14,4 +14,7 @@ binding = "ASSETS"
 # 값이라, 비어 있으면 팀 모드가 아예 켜지지 않는다(열려버리는 쪽이 아니라).
 [vars]
 ACCESS_DOMAIN = "ulicktodo.cloudflareaccess.com"
+# 팀 이름을 mute-frost-a2db에서 ulicktodo로 바꿨지만, Cloudflare가 발급하는
+# 토큰의 발급자는 옛 이름 그대로다. 서명 키는 위 도메인에서 받는 것이 맞다.
+ACCESS_ISSUERS = "mute-frost-a2db.cloudflareaccess.com"
 ACCESS_AUD = "f8e6f5fce9f92d9dc7097ede31986db9b36ad91dfcbbf09d8bc125b098087b8a"

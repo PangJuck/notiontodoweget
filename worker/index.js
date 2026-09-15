@@ -62,9 +62,16 @@ async function fetchAccessKeys(domain) {
   return accessKeys;
 }
 
+/* 팀 이름을 바꿔도 Cloudflare는 발급자를 옛 이름으로 계속 쓴다. 그래서 받아들일
+   발급자를 따로 적어 둔다(ACCESS_ISSUERS). 비워 두면 팀 도메인 하나만 받는다. */
+function allowedIssuers(env) {
+  const domains = [env.ACCESS_DOMAIN, ...String(env.ACCESS_ISSUERS || "").split(",")];
+  return domains.map((d) => String(d || "").trim()).filter(Boolean).map((d) => `https://${d}`);
+}
+
 /* Access가 붙여 보낸 JWT를 검증한다. 서명·만료·발급자·대상까지 전부 본다.
    하나라도 어긋나면 던진다 — 통과하지 못한 요청은 노션 근처에도 못 간다. */
-async function verifyAccessJwt(jwt, domain, aud) {
+async function verifyAccessJwt(jwt, domain, aud, issuers) {
   const parts = jwt.split(".");
   if (parts.length !== 3) throw new Error("토큰 형식이 아니다");
   const header = b64urlJson(parts[0]);
@@ -95,7 +102,8 @@ async function verifyAccessJwt(jwt, domain, aud) {
 
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp && payload.exp <= now) throw new Error("만료된 토큰이다");
-  if (payload.iss !== `https://${domain}`) throw new Error("발급자가 다르다");
+  // 어긋났을 때 실제 값을 같이 알려 준다. 안 그러면 뭘 적어야 할지 알 수가 없다.
+  if (!issuers.includes(payload.iss)) throw new Error(`발급자가 다르다 (${payload.iss})`);
   const auds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (!auds.includes(aud)) throw new Error("다른 애플리케이션의 토큰이다");
   return payload;
@@ -140,7 +148,7 @@ async function identify(request, env) {
   }
   let payload;
   try {
-    payload = await verifyAccessJwt(jwt, env.ACCESS_DOMAIN, env.ACCESS_AUD);
+    payload = await verifyAccessJwt(jwt, env.ACCESS_DOMAIN, env.ACCESS_AUD, allowedIssuers(env));
   } catch (e) {
     throw new IdentityError("로그인을 확인하지 못했다", String(e.message || e));
   }
