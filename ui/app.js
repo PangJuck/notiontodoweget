@@ -5,15 +5,17 @@ const body = el("#body");
 let Q = [];
 let TODAY = "";
 let SOURCES = ["업무", "개인"];
-let PEOPLE = [];   // 관리자로 로그인했을 때만 채워진다. 비면 담당자 줄이 안 뜬다
+let PEOPLE = [];   // 팀 모드일 때 담당자 목록. 비면 담당자 줄이 안 뜬다
 let ME = "";       // 내 담당자 이름 (팀 모드일 때만)
+let isAdmin = true;
 let items = [];
 let doneItems = [];
 let logLoaded = false;
 
 let tab = "matrix";
 let source = "all";
-let person = "all"; // 담당자 필터. 관리자만 쓴다
+let person = "all"; // 담당자 필터
+let personSet = false; // 첫 화면의 기본값을 한 번만 정하려고 둔다
 let expanded = new Set();
 let toastTimer = null;
 let pullTimer = null;
@@ -143,7 +145,7 @@ async function pull(){
   }
   const d = r.data;
   TODAY = d.today; Q = d.quads; SOURCES = d.sources; items = d.items;
-  PEOPLE = d.people || []; ME = d.me || "";
+  PEOPLE = d.people || []; ME = d.me || ""; isAdmin = d.admin !== false;
   // 하단 링크는 성준 개인 claude.ai 프로젝트로 간다. 팀원은 열지 못하므로 숨긴다.
   el("#assistant-link").hidden = d.team === true && !d.admin;
   fillFilters();
@@ -598,6 +600,12 @@ function fillFilters(){
   }
   who.innerHTML = [chip("who", "all", "전체"),
     ...PEOPLE.map(p => chip("who", p, p))].join("");
+  // 팀원은 자기 것부터 보는 게 자연스럽다. 동료 것은 눌러서 본다.
+  // 관리자는 전체를 먼저 본다. 한 번 고른 뒤에는 건드리지 않는다.
+  if (!personSet){
+    person = !isAdmin && ME && PEOPLE.includes(ME) ? ME : "all";
+    personSet = true;
+  }
   if (person !== "all" && !PEOPLE.includes(person)) person = "all";
 }
 

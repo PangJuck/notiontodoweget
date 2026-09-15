@@ -173,8 +173,9 @@ async function identify(request, env) {
     );
   }
   const admin = team.admins.includes(who);
-  // 관리자만 사람 목록을 받는다. 팀원에게는 동료 이름조차 내보내지 않는다.
-  const people = admin ? [...new Set(Object.values(team.byEmail))] : [];
+  // 팀이 서로의 할 일을 보기로 했다. 그래서 사람 목록은 전원이 받는다.
+  // 고치는 것은 여전히 자기 것만이다 — assertOwned가 막는다.
+  const people = [...new Set(Object.values(team.byEmail))];
   return { team: true, admin, name, email, people };
 }
 
@@ -366,16 +367,19 @@ async function fetchDoneRows(token, dbId, owner) {
   return r.results;
 }
 
-/* 팀 DB에서 걸러낼 담당자. 관리자는 전체를 보므로 조건이 없다. */
-function ownerLimit(who, dbId) {
-  return who.team && !who.admin && dbId === TEAM_DB ? who.name : null;
+/* 누구 것만 볼지. 아무 말이 없거나 "all"이면 조건을 걸지 않는다 —
+   팀이 서로의 할 일을 보기로 했기 때문이다. 이름을 주면 그 사람 것만 본다. */
+function ownerLimit(who, dbId, want) {
+  if (!who.team || dbId !== TEAM_DB) return null;
+  const name = String(want || "").trim();
+  return name && name !== "all" ? name : null;
 }
 
-async function loadItems(token, who) {
+async function loadItems(token, who, owner) {
   const items = [];
   for (const [tag, dbId] of sourcesFor(who)) {
     await ensureOptions(token, dbId);
-    const rows = await fetchRows(token, dbId, ownerLimit(who, dbId));
+    const rows = await fetchRows(token, dbId, ownerLimit(who, dbId, owner));
     items.push(...rows.map((r) => parseRow(r, tag, who.name)));
   }
   // 마감 가까운 순. 날짜 없는 것은 뒤로. (파이썬과 같은 키: !due, due, tag)
@@ -387,11 +391,11 @@ async function loadItems(token, who) {
   return items;
 }
 
-async function loadDone(token, who) {
+async function loadDone(token, who, owner) {
   const cutoff = new Date(Date.now() - (LOG_DAYS - 1) * 86400000).toISOString().slice(0, 10);
   const rows = [];
   for (const [tag, dbId] of sourcesFor(who)) {
-    const raw = await fetchDoneRows(token, dbId, ownerLimit(who, dbId));
+    const raw = await fetchDoneRows(token, dbId, ownerLimit(who, dbId, owner));
     for (const r of raw) {
       const item = parseDone(r, tag, who.name);
       if (item.done && item.done >= cutoff) rows.push(item);
@@ -401,9 +405,9 @@ async function loadDone(token, who) {
   return rows;
 }
 
-async function snapshot(token, who) {
+async function snapshot(token, who, owner) {
   const sources = sourcesFor(who);
-  const items = await loadItems(token, who);
+  const items = await loadItems(token, who, owner);
   return {
     today: todayISO(),
     quads: quadDefs(sources),
@@ -512,8 +516,8 @@ function owned(token, who, pageId, fn) {
 }
 
 const HANDLERS = {
-  data: (token, who) => guarded(token, () => snapshot(token, who)),
-  log: (token, who) => guarded(token, () => loadDone(token, who)),
+  data: (token, who, [owner]) => guarded(token, () => snapshot(token, who, owner)),
+  log: (token, who, [owner]) => guarded(token, () => loadDone(token, who, owner)),
   done: (token, who, [pageId]) => owned(token, who, pageId, () => complete(token, pageId)),
   undo: (token, who, [pageId]) => owned(token, who, pageId, () => uncomplete(token, pageId)),
   setpri: (token, who, [pageId, num, tag]) =>
@@ -563,18 +567,33 @@ const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)�
 - 남의 회신을 기다리는 일은 set_waiting으로 표시한다
 - 오늘 반드시 끝낼 것은 set_today로 고정한다. 최대 3개다
 
-고치거나 완료 처리하려면 먼저 list_todos로 id를 확인한다.`;
+고치거나 완료 처리하려면 먼저 list_todos로 id를 확인한다.
+
+팀원끼리 서로의 할 일을 볼 수 있다(owner로 지정). 다만 고치고 완료 처리하는 것은
+자기 것만 된다. 남의 항목을 손대려 하면 거부된다 — 그게 정상이고, 그 사람에게
+말해서 직접 하게 한다.`;
 
 const MCP_TOOLS = [
   {
     name: "list_todos",
-    description: "내 할 일(아직 안 끝낸 것)을 사분면별로 모아 본다. 고치기 전에 id를 얻는 용도로도 쓴다.",
-    inputSchema: { type: "object", properties: {} },
+    description:
+      "할 일(아직 안 끝낸 것)을 사분면별로 모아 본다. 기본은 내 것이고, owner에 동료 이름이나 \"all\"을 주면 그쪽도 볼 수 있다. 고치기 전에 id를 얻는 용도로도 쓴다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "동료 이름, 또는 전원을 보려면 \"all\". 비우면 내 것" },
+      },
+    },
   },
   {
     name: "list_done",
-    description: "최근 일주일 동안 내가 끝낸 일을 본다.",
-    inputSchema: { type: "object", properties: {} },
+    description: "최근 일주일 동안 끝낸 일을 본다. 기본은 내 것이고, owner로 동료나 \"all\"을 볼 수 있다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "동료 이름, 또는 전원을 보려면 \"all\". 비우면 내 것" },
+      },
+    },
   },
   {
     name: "add_todo",
@@ -683,12 +702,13 @@ async function runTool(env, who, name, args) {
   const id = String(args.id || "");
 
   switch (name) {
+    // 말로 물을 때는 보통 자기 것을 묻는다. 동료 것은 owner를 줘야 본다.
     case "list_todos": {
-      const r = await call("data", []);
+      const r = await call("data", [args.owner || who.name]);
       return r.ok ? formatItems(r.data) : r;
     }
     case "list_done": {
-      const r = await call("log", []);
+      const r = await call("log", [args.owner || who.name]);
       return r.ok ? formatDone(r.data) : r;
     }
     case "add_todo": {
