@@ -1,0 +1,156 @@
+"""팀원에게 건넬 안내 파일(.md)과 새 TEAM 시크릿을 한 번에 만든다.
+
+팀원이 할 일은 받은 .md 하나를 자기 Claude에 던지는 것뿐이다. 그 안에
+설정 명령이 토큰까지 채워진 채로 들어 있어서, Claude가 읽고 스스로 붙는다.
+
+쓰는 법:  python scripts\\make_member_guide.py
+
+만들어진 .md에는 그 사람의 서비스 토큰이 들어 있다. 단톡방에 올리지 말고
+1:1로 건네고, 다 쓰면 지운다. guides/ 폴더는 git에 올라가지 않는다.
+"""
+import json
+import sys
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent.parent / "guides"
+DEFAULT_URL = "https://todo-widget-web.pangtodo.workers.dev"
+
+GUIDE = """# 울릭 할 일 — {name}님
+
+이 파일 하나면 설정이 끝납니다. **Claude Code를 아무 폴더에서나 열고, 이 파일을
+끌어다 놓은 뒤 "이거 보고 세팅해줘" 라고 말씀하시면 됩니다.**
+
+---
+
+## Claude에게
+
+아래를 순서대로 해줘.
+
+**1. 이 명령을 실행해줘** (한 줄이다):
+
+```
+claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-Access-Client-Id: {client_id}" --header "CF-Access-Client-Secret: {client_secret}"
+```
+
+**2.** 성공했으면 `claude mcp list` 로 `ulick-todo` 가 연결됐는지 확인해줘.
+
+**3.** 연결됐으면 `list_todos` 를 한 번 불러서 지금 남은 할 일을 보여줘.
+   (처음이면 비어 있는 게 정상이다.)
+
+**4.** 마지막으로 아래 "쓰는 법"을 이 사람에게 짧게 안내해줘.
+
+설정은 이 컴퓨터에 한 번만 하면 되고, 다음부터는 어느 폴더에서 Claude를 켜도
+바로 쓸 수 있다.
+
+---
+
+## 쓰는 법
+
+설정이 끝나면 Claude에게 그냥 말로 하시면 됩니다.
+
+- **"오늘 할 일 뭐 남았어?"**
+- **"3PL 견적서 3곳 비교표 내일까지, 그리고 가영님한테 드랍테스트 일정 물어보기 — 정리해서 넣어줘"**
+  → 두 건으로 쪼개서 사분면까지 정해 넣어줍니다
+- **"위클리 양식 만들기 끝냈어"**
+- **"오늘 이 세 개만 하자"** → 오늘 꼭 끝낼 것으로 고정
+- **"물류팀 회신 기다리는 중이야"** → 대기중 표시
+- **"이번 주에 뭐 했지?"**
+
+할 일은 **중요도 × 급함**으로 네 칸에 들어갑니다.
+
+| | 급함 | 안 급함 |
+|---|---|---|
+| **중요** | 1 지금 당장 | 2 핵심 업무 |
+| **안 중요** | 3 빠르게 쳐낼 | 4 언젠가 |
+
+2번 칸을 비워두면 나중에 전부 1번이 됩니다. 거기가 제일 중요합니다.
+
+## 브라우저로도 볼 수 있습니다
+
+{url}
+
+같은 데이터라 어느 쪽에서 고쳐도 같이 바뀝니다. 폰에서도 됩니다.
+처음 들어가면 회사 메일로 6자리 코드를 받아 입력하시면 됩니다.
+
+## 알아두실 것
+
+- **다른 분 할 일은 보이지 않습니다.** 본인 것만 오갑니다
+- **팀장은 전체를 봅니다.** 업무 현황 파악용입니다
+- 이 파일에는 {name}님 전용 열쇠가 들어 있습니다. 다른 사람에게 넘기지 마세요
+"""
+
+
+def ask(prompt, default=""):
+    got = input(f"{prompt}{f' [{default}]' if default else ''}: ").strip()
+    return got or default
+
+
+def main():
+    print(__doc__)
+    print("먼저 지금 쓰고 있는 TEAM 시크릿을 한 줄로 붙여넣으세요.")
+    print("(모르면 취소하고 worker/README.md의 '팀 모드'를 보세요.)\n")
+    raw = input("TEAM JSON> ").strip()
+    try:
+        cfg = json.loads(raw)
+    except json.JSONDecodeError as e:
+        sys.exit(f"\nJSON을 읽지 못했다: {e}\n한 줄 전체를 빠짐없이 붙여넣었는지 확인하세요.")
+
+    members = cfg.get("members") or {}
+    if not members:
+        sys.exit("members가 비어 있다. TEAM 시크릿을 다시 확인하세요.")
+
+    url = ask("\n웹 주소", DEFAULT_URL).rstrip("/")
+    admins = [a.strip().lower() for a in cfg.get("admins", [])]
+    tokens = dict(cfg.get("tokens") or {})
+
+    OUT.mkdir(exist_ok=True)
+    made = []
+    print("\n사람마다 서비스 토큰을 입력하세요. 만들지 않았으면 그냥 엔터로 넘기면 됩니다.")
+    print("(Cloudflare: Zero Trust > 액세스 제어 > 서비스 자격 증명)\n")
+    for email, name in members.items():
+        print(f"── {name} ({email})")
+        client_id = ask("   Client ID")
+        if not client_id:
+            print("   건너뜀\n")
+            continue
+        client_secret = ask("   Client Secret")
+        if not client_secret:
+            print("   Secret이 없어 건너뜀\n")
+            continue
+
+        key = client_id.strip().lower()
+        tokens[key] = name
+        # 관리자 본인의 토큰도 관리자여야 한다. 안 그러면 자기 Claude에서만
+        # 팀원처럼 보인다 — 알아채기 어려운 함정이라 여기서 자동으로 맞춘다.
+        if email.strip().lower() in admins and key not in admins:
+            admins.append(key)
+
+        path = OUT / f"{name}.md"
+        path.write_text(
+            GUIDE.format(name=name, url=url, client_id=client_id.strip(), client_secret=client_secret.strip()),
+            encoding="utf-8",
+        )
+        made.append(path)
+        print(f"   -> {path.name}\n")
+
+    if not made:
+        sys.exit("만든 것이 없다.")
+
+    cfg["admins"] = admins
+    cfg["tokens"] = tokens
+
+    print("=" * 70)
+    print("1) 아래 한 줄을 새 TEAM 시크릿으로 넣으세요:\n")
+    print("   cd worker")
+    print("   npx wrangler secret put TEAM\n")
+    print(json.dumps(cfg, ensure_ascii=False, separators=(",", ":")))
+    print()
+    print("=" * 70)
+    print(f"2) guides\\ 안의 파일을 각자에게 1:1로 보내세요 ({len(made)}개):")
+    for p in made:
+        print(f"   - {p.name}")
+    print("\n   토큰이 들어 있는 파일입니다. 단톡방에 올리지 마세요.")
+
+
+if __name__ == "__main__":
+    main()

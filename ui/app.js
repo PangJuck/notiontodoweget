@@ -582,9 +582,12 @@ function chip(attr, key, label, count){
 
 function fillFilters(){
   const keys = ["all", ...SOURCES];
-  el("#src").innerHTML = [chip("src", "all", "전체", true),
+  const src = el("#src");
+  // 고를 DB가 하나뿐이면 '전체'와 그 하나가 같은 말이라 줄이 헷갈리기만 한다.
+  src.hidden = SOURCES.length < 2;
+  src.innerHTML = src.hidden ? "" : [chip("src", "all", "전체", true),
     ...SOURCES.map(t => chip("src", t, t, true))].join("");
-  if (!keys.includes(source)) source = "all";
+  if (src.hidden || !keys.includes(source)) source = "all";
 
   const who = el("#who");
   who.hidden = PEOPLE.length < 2; // 혼자뿐이면 고를 것이 없다
@@ -600,6 +603,7 @@ function fillFilters(){
 
 function fillAddForm(){
   const tagSel = el("#a-tag");
+  tagSel.hidden = SOURCES.length < 2; // 어차피 갈 곳이 하나뿐이면 고를 이유가 없다
   if (tagSel.options.length !== SOURCES.length){
     tagSel.innerHTML = SOURCES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
   }

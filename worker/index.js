@@ -121,11 +121,17 @@ function parseTeam(raw) {
   for (const [email, name] of Object.entries(cfg.members || {})) {
     byEmail[String(email).trim().toLowerCase()] = String(name).trim();
   }
+  // 사람이 아니라 프로그램(팀원의 Claude)이 붙을 때 쓰는 서비스 토큰.
+  // 토큰 하나가 사람 하나를 가리키므로 신원 판정은 이메일일 때와 똑같다.
+  const byToken = {};
+  for (const [clientId, name] of Object.entries(cfg.tokens || {})) {
+    byToken[String(clientId).trim().toLowerCase()] = String(name).trim();
+  }
   const admins = (cfg.admins || []).map((e) => String(e).trim().toLowerCase());
   if (!Object.keys(byEmail).length) {
     throw new IdentityError("팀에 등록된 사람이 없다", "TEAM 시크릿의 members를 채운다.");
   }
-  return { byEmail, admins };
+  return { byEmail, byToken, admins };
 }
 
 async function identify(request, env) {
@@ -153,12 +159,20 @@ async function identify(request, env) {
     throw new IdentityError("로그인을 확인하지 못했다", String(e.message || e));
   }
 
+  // 사람이면 email, 서비스 토큰이면 common_name이 온다. 둘 중 있는 쪽을 쓴다.
   const email = String(payload.email || "").trim().toLowerCase();
-  const name = team.byEmail[email];
+  const token = String(payload.common_name || "").trim().toLowerCase();
+  const who = email || token;
+  const name = email ? team.byEmail[email] : team.byToken[token];
   if (!name) {
-    throw new IdentityError("등록되지 않은 사용자다", `${email} 을 TEAM 시크릿의 members에 추가한다.`);
+    throw new IdentityError(
+      "등록되지 않은 사용자다",
+      email
+        ? `${email} 을 TEAM 시크릿의 members에 추가한다.`
+        : `${token || "(신원 없음)"} 을 TEAM 시크릿의 tokens에 추가한다.`
+    );
   }
-  const admin = team.admins.includes(email);
+  const admin = team.admins.includes(who);
   // 관리자만 사람 목록을 받는다. 팀원에게는 동료 이름조차 내보내지 않는다.
   const people = admin ? [...new Set(Object.values(team.byEmail))] : [];
   return { team: true, admin, name, email, people };
@@ -523,6 +537,237 @@ const HANDLERS = {
   remove: (token, who, [pageId]) => owned(token, who, pageId, () => trash(token, pageId)),
 };
 
+/* ── MCP 창구 ──────────────────────────
+   팀원이 자기 Claude에서 말로 할 일을 넣고 볼 수 있게 여는 문이다.
+   노션을 직접 열어주는 대신 이 문만 열어 준다 — 신원 확인과 거르기가
+   전부 위쪽 코드를 그대로 지나가므로, 여기서도 자기 것만 오간다.
+
+   전송은 Streamable HTTP. 상태를 두지 않고 요청 하나에 답 하나로 끝낸다. */
+
+const MCP_PROTOCOL = "2025-06-18";
+
+const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)으로 관리한다.
+
+사분면 판단은 앞 숫자로 한다:
+1 지금 당장 (중요+시급)  — 오늘 안 하면 터지는 일
+2 핵심 업무 (중요+안시급) — 안 하면 나중에 1번이 되는 일
+3 빠르게 쳐낼 (안중요+시급) — 잡무
+4 언젠가 (안중요+안시급)   — 지금은 아닌데 버리기 아까운 것
+
+할 일을 적을 때:
+- 동사형으로, 무엇을 끝내면 되는지 알 수 있게 쓴다
+  ("3PL 검토" 대신 "3PL 견적서 3곳 비교표 1장 만들기")
+- 기한이 말에 있으면 제목 앞에 남기고 마감일에도 넣는다
+- 결과물이 무엇인지 분명하지 않으면 memo에 "결과물: ..."로 적는다
+- 한 문장에 일이 여럿이면 쪼개서 각각 넣는다
+- 남의 회신을 기다리는 일은 set_waiting으로 표시한다
+- 오늘 반드시 끝낼 것은 set_today로 고정한다. 최대 3개다
+
+고치거나 완료 처리하려면 먼저 list_todos로 id를 확인한다.`;
+
+const MCP_TOOLS = [
+  {
+    name: "list_todos",
+    description: "내 할 일(아직 안 끝낸 것)을 사분면별로 모아 본다. 고치기 전에 id를 얻는 용도로도 쓴다.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_done",
+    description: "최근 일주일 동안 내가 끝낸 일을 본다.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "add_todo",
+    description: "할 일을 새로 넣는다. 담당자는 로그인한 본인으로 자동으로 정해진다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "할 일. 동사형으로, 기한이 있으면 앞에 남긴다" },
+        quadrant: { type: "integer", description: "사분면 1~4. 모르면 비운다", minimum: 1, maximum: 4 },
+        due: { type: "string", description: "마감일 YYYY-MM-DD" },
+        memo: { type: "string", description: "결과물 정의나 비고" },
+        source: { type: "string", description: "넣을 곳. 고를 수 있을 때만 쓴다" },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "complete_todo",
+    description: "할 일을 완료 처리한다. 완료일도 같이 기록된다.",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "uncomplete_todo",
+    description: "완료 처리를 되돌린다.",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "set_priority",
+    description: "할 일을 다른 사분면으로 옮긴다.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, quadrant: { type: "integer", minimum: 1, maximum: 4 } },
+      required: ["id", "quadrant"],
+    },
+  },
+  {
+    name: "set_memo",
+    description: "메모(비고)를 쓰거나 고친다. 빈 문자열을 주면 지운다.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, memo: { type: "string" } },
+      required: ["id", "memo"],
+    },
+  },
+  {
+    name: "set_today",
+    description: "오늘 반드시 끝낼 것으로 고정하거나 푼다. 최대 3개까지가 원칙이다.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, on: { type: "boolean" } },
+      required: ["id", "on"],
+    },
+  },
+  {
+    name: "set_waiting",
+    description: "남의 회신을 기다리는 중으로 표시하거나 푼다.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, on: { type: "boolean" } },
+      required: ["id", "on"],
+    },
+  },
+  {
+    name: "remove_todo",
+    description: "할 일을 지운다(노션 휴지통으로 보낸다). 완료가 아니라 아예 없애는 경우에만 쓴다.",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+  },
+];
+
+function formatItems(data) {
+  const { items, quads, today } = data;
+  if (!items.length) return "남은 할 일이 없다.";
+  const lines = [`오늘 ${today}. 남은 할 일 ${items.length}건.`];
+  const label = (n) => {
+    const q = quads.find((x) => x.n === n);
+    return q ? `${n} ${q.name} (${q.axis})` : `${n}`;
+  };
+  for (const n of [1, 2, 3, 4, null]) {
+    const cell = items.filter((i) => i.q === n);
+    if (!cell.length) continue;
+    lines.push("", n ? `[${label(n)}]` : "[미분류]");
+    for (const i of cell) {
+      const bits = [];
+      if (i.today) bits.push("오늘의3");
+      if (i.wait) bits.push("대기중");
+      if (i.due) bits.push(`마감 ${i.due}`);
+      if (i.owner) bits.push(i.owner);
+      lines.push(`- ${i.title}${bits.length ? `  (${bits.join(", ")})` : ""}`);
+      if (i.memo) lines.push(`    메모: ${i.memo}`);
+      lines.push(`    id: ${i.id}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatDone(rows) {
+  if (!rows.length) return "최근 일주일 동안 끝낸 일이 없다.";
+  return rows.map((r) => `- ${r.done}  ${r.title}${r.owner ? `  (${r.owner})` : ""}`).join("\n");
+}
+
+/* 도구 하나하나를 새로 짜지 않는다. 화면이 쓰는 것과 똑같은 핸들러를 부른다 —
+   그래야 웹에서 한 일과 Claude로 한 일이 어긋나지 않는다. */
+async function runTool(env, who, name, args) {
+  const token = env.NOTION_TOKEN;
+  const call = (handler, list) => HANDLERS[handler](token, who, list);
+  const id = String(args.id || "");
+
+  switch (name) {
+    case "list_todos": {
+      const r = await call("data", []);
+      return r.ok ? formatItems(r.data) : r;
+    }
+    case "list_done": {
+      const r = await call("log", []);
+      return r.ok ? formatDone(r.data) : r;
+    }
+    case "add_todo": {
+      const tag = args.source || sourcesFor(who)[0][0];
+      const r = await call("add", [args.title, tag, args.due, args.quadrant]);
+      if (!r.ok) return r;
+      // 메모는 만들면서 같이 넣을 수 없다. 방금 만든 줄을 찾아 붙인다.
+      if (args.memo) {
+        const back = await call("data", []);
+        const made = back.ok && back.data.items.find((i) => i.title === String(args.title).trim());
+        if (made) await call("setmemo", [made.id, args.memo]);
+      }
+      return `넣었다: ${args.title}`;
+    }
+    case "complete_todo":   return unwrap(await call("done", [id]), "완료 처리했다.");
+    case "uncomplete_todo": return unwrap(await call("undo", [id]), "완료를 되돌렸다.");
+    case "set_priority":    return unwrap(await call("setpri", [id, args.quadrant, args.source]), `${args.quadrant}번으로 옮겼다.`);
+    case "set_memo":        return unwrap(await call("setmemo", [id, args.memo]), "메모를 저장했다.");
+    case "set_today":       return unwrap(await call("star", [id, args.on]), args.on ? "오늘의 3에 고정했다." : "고정을 풀었다.");
+    case "set_waiting":     return unwrap(await call("waiting", [id, args.on]), args.on ? "대기중으로 표시했다." : "대기중을 풀었다.");
+    case "remove_todo":     return unwrap(await call("remove", [id]), "지웠다(노션 휴지통).");
+    default:
+      return { ok: false, error: `모르는 도구다: ${name}`, hint: "" };
+  }
+}
+
+function unwrap(result, message) {
+  return result.ok ? message : result;
+}
+
+const rpc = (id, payload) => Response.json({ jsonrpc: "2.0", id, ...payload });
+
+async function handleMcp(request, env, who) {
+  let msg;
+  try {
+    msg = await request.json();
+  } catch (_) {
+    return rpc(null, { error: { code: -32700, message: "JSON을 읽지 못했다" } });
+  }
+  // 알림(응답을 기다리지 않는 메시지)은 받기만 하고 끝낸다.
+  if (msg.id === undefined || msg.id === null) return new Response(null, { status: 202 });
+
+  switch (msg.method) {
+    case "initialize":
+      return rpc(msg.id, {
+        result: {
+          protocolVersion:
+            typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : MCP_PROTOCOL,
+          capabilities: { tools: {} },
+          serverInfo: { name: "ulick-todo", version: "1.4.0" },
+          instructions: MCP_INSTRUCTIONS,
+        },
+      });
+    case "ping":
+      return rpc(msg.id, { result: {} });
+    case "tools/list":
+      return rpc(msg.id, { result: { tools: MCP_TOOLS } });
+    case "tools/call": {
+      const name = msg.params?.name;
+      const args = msg.params?.arguments || {};
+      if (!MCP_TOOLS.some((t) => t.name === name)) {
+        return rpc(msg.id, { error: { code: -32602, message: `모르는 도구다: ${name}` } });
+      }
+      let out;
+      try {
+        out = await runTool(env, who, name, args);
+      } catch (e) {
+        out = { ok: false, error: "처리하지 못했다", hint: String(e.message || e) };
+      }
+      // 실패는 프로토콜 오류가 아니라 도구 결과로 돌려준다. 그래야 Claude가 읽고 고친다.
+      const failed = out && out.ok === false;
+      const text = failed ? [out.error, out.hint].filter(Boolean).join(" — ") : String(out);
+      return rpc(msg.id, { result: { content: [{ type: "text", text }], isError: !!failed } });
+    }
+    default:
+      return rpc(msg.id, { error: { code: -32601, message: `모르는 요청이다: ${msg.method}` } });
+  }
+}
+
 async function readAsset(env, requestUrl, path) {
   const assetUrl = new URL(path, requestUrl);
   const res = await env.ASSETS.fetch(new Request(assetUrl));
@@ -561,6 +806,21 @@ export default {
 
     if (url.pathname === "/") {
       return renderShell(env, request.url);
+    }
+
+    // 팀원의 Claude가 붙는 문. 화면과 같은 신원·같은 거르기를 지난다.
+    if (url.pathname === "/mcp") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } });
+      }
+      let who;
+      try {
+        who = await identify(request, env);
+      } catch (e) {
+        if (!(e instanceof IdentityError)) throw e;
+        return rpc(null, { error: { code: -32001, message: `${e.message} — ${e.hint}` } });
+      }
+      return handleMcp(request, env, who);
     }
 
     if (url.pathname.startsWith("/api/")) {

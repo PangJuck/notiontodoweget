@@ -9,3 +9,6 @@ scripts/assets/app.ico
 worker/.dev.vars
 worker/node_modules/
 worker/.wrangler/
+
+# 팀원에게 보낼 안내 파일. 서비스 토큰이 들어 있어 저장소에 두지 않는다.
+guides/
