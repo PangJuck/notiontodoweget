@@ -14,4 +14,4 @@ binding = "ASSETS"
 # 값이라, 비어 있으면 팀 모드가 아예 켜지지 않는다(열려버리는 쪽이 아니라).
 [vars]
 ACCESS_DOMAIN = "ulicktodo.cloudflareaccess.com"
-ACCESS_AUD = ""
+ACCESS_AUD = "f8e6f5fce9f92d9dc7097ede31986db9b36ad91dfcbbf09d8bc125b098087b8a"
