@@ -283,6 +283,69 @@ ul{list-style:none;margin:0;padding:0}
 .group.past h3{color:var(--q1)}
 .group h3 .rule{flex:1;height:1px;background:var(--line)}
 .group h3 .cnt{font-variant-numeric:tabular-nums;font-weight:500}
+
+/* 캘린더 — 마감일을 달에 얹어 본다.
+   칸 하나는 좁으므로 미리 보여주는 것은 세 건까지고, 나머지는 +N으로
+   접힌다. 칸을 누르면 그 날 전체가 아래 목록으로 펼쳐진다 */
+.cal{display:flex;flex-direction:column}
+.calbar{display:flex;align-items:center;gap:5px;margin:0 0 6px}
+.calbar .mon{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.calnav,.calnow{
+  border:0;background:var(--panel);color:var(--muted);font:inherit;font-size:11px;
+  border-radius:5px;cursor:pointer;padding:3px 8px;line-height:1.2;
+}
+.calnav{width:22px;padding:3px 0;font-size:13px}
+.calnav:hover,.calnow:hover{background:var(--panel-2);color:var(--text)}
+.calgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.caldow{font-size:10px;color:var(--muted);text-align:center;padding-bottom:2px}
+.caldow.sun{color:var(--q1)}
+.calday{
+  background:var(--panel);border-radius:6px;min-height:58px;min-width:0;
+  padding:3px;display:flex;flex-direction:column;gap:2px;cursor:pointer;
+}
+.calchips{display:flex;flex-direction:column;gap:2px;min-width:0}
+.calday:hover{background:var(--panel-2)}
+.calday.off{opacity:.42}
+.calday.on{background:var(--panel-2);box-shadow:0 0 0 1px var(--line) inset}
+.calday.today{box-shadow:0 0 0 1px var(--accent) inset}
+.calday .d{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;padding-left:2px}
+.calday.sun .d{color:var(--q1)}
+.calday.today .d{color:var(--accent);font-weight:700}
+.calchip{
+  display:flex;align-items:center;gap:3px;min-width:0;
+  padding:1px 3px;border-radius:4px;border-left:2px solid var(--line);
+  background:rgba(255,255,255,.05);
+}
+.calchip.q1{border-left-color:var(--q1)}
+.calchip.q2{border-left-color:var(--q2)}
+.calchip.q3{border-left-color:var(--q3)}
+.calchip.q4{border-left-color:var(--q4)}
+.calchip .chk{width:11px;height:11px;margin:0;border-radius:3px}
+.calchip .ct{
+  flex:1;min-width:0;font-size:10.5px;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.calchip.waiting .ct{color:var(--muted)}
+.calchip.over .ct{color:var(--q1)}
+.callate{margin-left:auto;font-size:10.5px;color:var(--q1);white-space:nowrap}
+.calmore{font-size:9.5px;color:var(--muted);padding-left:3px}
+/* 좁은 위젯에서는 제목이 한두 글자로 잘려 읽을 수가 없다.
+   글자를 버리고 사분면 색 점만 찍는다 — 어느 날이 무거운지는 그것으로 보이고,
+   무엇인지는 그 날을 눌러 아래 목록에서 읽는다 */
+.widget.narrow .calday{min-height:40px;padding:2px}
+.widget.narrow .calchips{flex-direction:row;flex-wrap:wrap;gap:2px;padding-left:2px}
+.widget.narrow .calchip{
+  width:6px;height:6px;padding:0;border:0;border-radius:50%;
+  background:var(--q4);overflow:hidden;
+}
+.widget.narrow .calchip.q1{background:var(--q1)}
+.widget.narrow .calchip.q2{background:var(--q2)}
+.widget.narrow .calchip.q3{background:var(--q3)}
+.widget.narrow .calchip.q0{background:var(--line)}
+.widget.narrow .calchip .chk,.widget.narrow .calchip .ct{display:none}
+.widget.narrow .calmore{font-size:9px;padding-left:1px;line-height:1}
+/* 웹은 화면이 넓다. 칸을 키워 미리 보이는 건수를 살린다 */
+.widget.web .calday{min-height:84px}
 .unsorted{
   margin-top:11px;background:rgba(234,181,67,.07);border:1px dashed rgba(234,181,67,.3);
   border-radius:9px;padding:7px 9px;

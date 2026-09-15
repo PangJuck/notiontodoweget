@@ -13,6 +13,8 @@ let doneItems = [];
 let logLoaded = false;
 
 let tab = "matrix";
+let calMonth = ""; // 캘린더가 보고 있는 달 "YYYY-MM". 비면 오늘이 든 달
+let calDay = "";   // 눌러서 펼쳐 둔 날
 let source = "all";
 let person = "all"; // 담당자 필터
 let personSet = false; // 첫 화면의 기본값을 한 번만 정하려고 둔다
@@ -269,6 +271,109 @@ function renderDates(){
   return h || `<div class="notice">보여줄 것이 없습니다.</div>`;
 }
 
+/* ── 캘린더 ─────────────────────────────
+   마감일을 달에 얹어 본다. 노션 캘린더 보기와 같은 것을 보되, 완료 체크와
+   사분면 색은 이 화면 것을 그대로 쓴다. 칸을 누르면 그 날만 아래에 펼친다.
+   달에 안 잡히는 두 가지(지난 마감, 날짜 미정)는 달력 아래에 따로 붙인다 —
+   달력만 보고 있으면 놓치기 딱 좋은 것들이다. */
+const DOW = ["일","월","화","수","목","금","토"];
+const CAL_CHIPS = 3; // 한 칸에 미리 보여줄 개수. 나머지는 +N
+const isoDay = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+function calAnchor(){
+  return calMonth || (TODAY ? TODAY.slice(0,7) : isoDay(new Date()).slice(0,7));
+}
+/* 사분면 순으로. 같은 칸 안에서는 급한 것이 위에 있어야 눈에 먼저 들어온다 */
+function quadSort(a, b){ return ((a.q || 9) - (b.q || 9)) || a.title.localeCompare(b.title); }
+
+function renderCal(){
+  const ym = calAnchor();
+  const y = +ym.slice(0,4), m = +ym.slice(5,7);
+
+  const all = view();
+  const byDay = {};
+  const undated = [];
+  for (const i of all){
+    if (i.due) (byDay[i.due] ||= []).push(i);
+    else undated.push(i);
+  }
+
+  const lateCount = all.filter(i => i.due && i.due < TODAY).length;
+
+  const lead = new Date(y, m-1, 1).getDay();          // 1일이 무슨 요일인지
+  const days = new Date(y, m, 0).getDate();           // 그 달의 마지막 날
+  const weeks = Math.ceil((lead + days) / 7);
+
+  let h = `<div class="cal"><div class="calbar">
+    <button type="button" class="calnav" onclick="calShift(-1)" title="이전 달">&#8249;</button>
+    <span class="mon">${y}년 ${m}월</span>
+    <button type="button" class="calnav" onclick="calShift(1)" title="다음 달">&#8250;</button>
+    <button type="button" class="calnow" onclick="calToday()">오늘</button>
+    ${lateCount ? `<span class="callate">지난 마감 ${lateCount}</span>` : ""}
+  </div><div class="calgrid">`;
+  h += DOW.map((d, n) => `<div class="caldow${n===0?" sun":""}">${d}</div>`).join("");
+
+  for (let n = 0; n < weeks * 7; n++){
+    const dt = new Date(y, m-1, 1 - lead + n);
+    const day = isoDay(dt);
+    const list = (byDay[day] || []).slice().sort(quadSort);
+    const chips = list.slice(0, CAL_CHIPS).map(i =>
+      `<span class="calchip q${i.q || 0}${i.wait?" waiting":""}${i.due < TODAY?" over":""}" title="${esc(i.title)}">
+        <button class="chk" title="완료" onclick="event.stopPropagation();complete('${i.id}')"></button>
+        <span class="ct">${esc(i.title)}</span></span>`).join("");
+    const more = list.length > CAL_CHIPS
+      ? `<span class="calmore">+${list.length - CAL_CHIPS}</span>` : "";
+    const cls = [
+      dt.getMonth() + 1 !== m ? "off" : "",
+      day === TODAY ? "today" : "",
+      day === calDay ? "on" : "",
+      dt.getDay() === 0 ? "sun" : "",
+    ].filter(Boolean).join(" ");
+    h += `<div class="calday${cls?" "+cls:""}" onclick="calPick('${day}')">
+      <span class="d">${dt.getDate()}</span>
+      <div class="calchips">${chips}${more}</div></div>`;
+  }
+  h += `</div>`;
+
+  if (calDay){
+    const list = (byDay[calDay] || []).slice().sort(quadSort);
+    const d = new Date(+calDay.slice(0,4), +calDay.slice(5,7)-1, +calDay.slice(8,10));
+    h += `<div class="group"><h3>${md(calDay)} (${DOW[d.getDay()]}) 마감<span class="rule"></span>
+      <span class="cnt">${list.length}</span></h3>
+      <ul>${list.length ? list.map(i=>row(i,false)).join("")
+        : `<li class="empty">이 날 마감인 일이 없습니다.</li>`}</ul></div>`;
+  }
+
+  // 지금 보고 있는 달에 이미 칸으로 나와 있는 것은 아래에 또 적지 않는다.
+  // 펼쳐 둔 날과 겹치는 것도 마찬가지다 — 같은 항목을 두 번 그리면 메모 편집창이 엉킨다.
+  const gridStart = isoDay(new Date(y, m-1, 1 - lead));
+  const over = all
+    .filter(i => i.due && i.due < TODAY && i.due < gridStart && i.due !== calDay)
+    .sort(dateSort);
+  if (over.length){
+    h += `<div class="group past"><h3>지난 마감<span class="rule"></span>
+      <span class="cnt">${over.length}</span></h3>
+      <ul>${over.map(i=>row(i,false)).join("")}</ul></div>`;
+  }
+  if (undated.length){
+    h += `<div class="group"><h3>날짜 미정<span class="rule"></span>
+      <span class="cnt">${undated.length}</span></h3>
+      <ul>${undated.map(i=>row(i,false)).join("")}</ul></div>`;
+  }
+  return h + `</div>`;
+}
+
+window.calShift = (delta) => {
+  const [y, m] = calAnchor().split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  calMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  calDay = "";
+  render();
+};
+window.calToday = () => { calMonth = ""; calDay = ""; render(); };
+window.calPick = (day) => { calDay = calDay === day ? "" : day; render(); };
+
 function renderLog(){
   if (!logLoaded) return `<div class="notice">불러오는 중…</div>`;
   const list = vdone();
@@ -500,7 +605,10 @@ function render(){
   document.querySelectorAll('[role="tab"]').forEach(b =>
     b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
 
-  body.innerHTML = tab === "matrix" ? renderMatrix() : tab === "dates" ? renderDates() : renderLog();
+  body.innerHTML = tab === "matrix" ? renderMatrix()
+                 : tab === "dates"  ? renderDates()
+                 : tab === "cal"    ? renderCal()
+                 : renderLog();
   if (tab === "matrix") requestAnimationFrame(fitCells);
 }
 
