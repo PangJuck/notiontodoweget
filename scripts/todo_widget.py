@@ -157,7 +157,8 @@ QUADRANTS = [
     (4, "언젠가", "안중요+안시급"),
 ]
 QUADRANT_NUMS = [num for num, _, _ in QUADRANTS]
-LOG_DAYS = 7  # 기록 탭이 거슬러 보는 날 수
+LOG_DAYS = 7        # 화면이 기간을 안 주면 거슬러 보는 날 수
+LOG_MAX_PAGES = 12  # 한 DB에서 넘길 페이지 한도. 100줄씩이니 1200줄에서 멈춘다
 
 # 노션에 실제로 들어 있는 옵션 이름. {db_id: {1: "1 지금 당장 (중요+시급)", ...}}
 # 위젯이 값을 쓸 때는 이 이름을 그대로 써야 새 옵션이 생기지 않는다.
@@ -260,18 +261,35 @@ def fetch_rows(db_id):
     return call(f"https://api.notion.com/v1/databases/{db_id}/query", payload, "POST")["results"]
 
 
-def fetch_done_rows(db_id):
+def fetch_done_rows(db_id, since=""):
     """최근 완료분. 완료일로 거르지 않고 정렬만 시킨 뒤 여기서 자른다.
 
     완료일이 비어 있는 줄(노션 화면에서 체크만 하고 버튼을 안 눌렀을 때)이
     필터에 걸리면 통째로 사라져서, 날짜 조건은 서버에 맡기지 않는다.
+    대신 기간 밖으로 넘어가면 더 넘기지 않는다 — 워커(worker/index.js의
+    fetchDoneRows)와 같은 방식이다.
     """
-    payload = {
-        "filter": {"property": "완료", "checkbox": {"equals": True}},
-        "sorts": [{"property": "완료일", "direction": "descending"}],
-        "page_size": 100,
-    }
-    return call(f"https://api.notion.com/v1/databases/{db_id}/query", payload, "POST")["results"]
+    rows = []
+    cursor = None
+    for _ in range(LOG_MAX_PAGES):
+        payload = {
+            "filter": {"property": "완료", "checkbox": {"equals": True}},
+            "sorts": [{"property": "완료일", "direction": "descending"}],
+            "page_size": 100,
+        }
+        if cursor:
+            payload["start_cursor"] = cursor
+        r = call(f"https://api.notion.com/v1/databases/{db_id}/query", payload, "POST")
+        rows += r["results"]
+        if not r.get("has_more") or not r.get("next_cursor"):
+            break
+        last = (r["results"][-1].get("properties", {}).get("완료일", {}).get("date") or {}).get("start", "")
+        last = (last or "")[:10]
+        # 완료일이 빈 줄은 내림차순 맨 뒤다. 거기까지 왔으면 더 볼 것이 없다.
+        if not last or (since and last < since):
+            break
+        cursor = r["next_cursor"]
+    return rows
 
 
 def patch(page_id, properties):
@@ -384,13 +402,18 @@ def load_items():
     return items
 
 
-def load_done():
-    cutoff = (date.today() - timedelta(days=LOG_DAYS - 1)).isoformat()
+def load_done(days=LOG_DAYS):
+    """days가 0이면 자르지 않는다 — 기록 탭의 '전체'."""
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = LOG_DAYS
+    cutoff = (date.today() - timedelta(days=days - 1)).isoformat() if days > 0 else ""
     rows = []
     for tag, db_id in SOURCES:
-        for r in fetch_done_rows(db_id):
+        for r in fetch_done_rows(db_id, cutoff):
             item = parse_done(r, tag)
-            if item["done"] and item["done"] >= cutoff:
+            if item["done"] and (not cutoff or item["done"] >= cutoff):
                 rows.append(item)
     rows.sort(key=lambda i: i["done"], reverse=True)
     return rows
@@ -510,8 +533,9 @@ class Api:
     def data(self):
         return guarded(snapshot)
 
-    def log(self):
-        return guarded(load_done)
+    def log(self, owner="", days=LOG_DAYS):
+        # owner는 팀 모드(웹판)에서만 뜻이 있다. 위젯은 성준 혼자 쓴다.
+        return guarded(load_done, days)
 
     def done(self, page_id):
         return guarded(complete, page_id)
@@ -538,7 +562,8 @@ class Api:
     def setmemo(self, page_id, text):
         return guarded(set_memo, page_id, text)
 
-    def add(self, title, tag, due, quadrant=None):
+    def add(self, title, tag, due, quadrant=None, priv=False):
+        # priv(비공개)는 팀 DB에만 있는 속성이다. 위젯은 업무·개인만 보므로 버린다.
         title = (title or "").strip()
         if not title:
             return {"ok": False, "error": "할 일을 적어주세요", "hint": ""}

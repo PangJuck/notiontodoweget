@@ -8,6 +8,7 @@ let SOURCES = ["업무", "개인"];
 let PEOPLE = [];   // 팀 모드일 때 담당자 목록. 비면 담당자 줄이 안 뜬다
 let ME = "";       // 내 담당자 이름 (팀 모드일 때만)
 let isAdmin = true;
+let isTeam = false;
 let items = [];
 let doneItems = [];
 let logLoaded = false;
@@ -15,6 +16,8 @@ let logLoaded = false;
 let tab = "matrix";
 let calMonth = ""; // 캘린더가 보고 있는 달 "YYYY-MM". 비면 오늘이 든 달
 let calDay = "";   // 눌러서 펼쳐 둔 날
+let logDays = 90;  // 기록 탭이 거슬러 보는 날 수. 0이면 전체
+let logGroup = "day"; // 기록 묶는 단위: day | week | month
 let source = "all";
 let person = "all"; // 담당자 필터
 let personSet = false; // 첫 화면의 기본값을 한 번만 정하려고 둔다
@@ -23,6 +26,10 @@ let toastTimer = null;
 let pullTimer = null;
 
 const md = (iso) => iso ? `${+iso.slice(5,7)}/${+iso.slice(8,10)}` : "";
+/* 위젯(파이썬)에는 아직 없는 창구가 있다. 있는 쪽에서만 그 기능을 켠다 —
+   없는 걸 불러서 오류를 내느니 버튼을 안 보이는 편이 낫다. */
+const can = (name) => !!(window.Backend && Backend[name]);
+const canPriv = (it) => isTeam && it.tag === "팀" && can("setpriv");
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 /* ── 글자 크기 (웹판 전용) ─────────────────
@@ -148,6 +155,7 @@ async function pull(){
   const d = r.data;
   TODAY = d.today; Q = d.quads; SOURCES = d.sources; items = d.items;
   PEOPLE = d.people || []; ME = d.me || ""; isAdmin = d.admin !== false;
+  isTeam = d.team === true;
   // 하단 링크는 성준 개인 claude.ai 프로젝트로 간다. 팀원은 열지 못하므로 숨긴다.
   el("#assistant-link").hidden = d.team === true && !d.admin;
   fillFilters();
@@ -158,7 +166,7 @@ async function pull(){
 async function pullLog(){
   if (!window.Backend) return;
   busy(true);
-  const r = await Backend.log();
+  const r = await Backend.log("", logDays);
   busy(false);
   if (!r.ok){ toast(r.error, r.hint, true); return; }
   doneItems = r.data;
@@ -168,16 +176,24 @@ async function pullLog(){
 
 /* ── 그리기 ───────────────────────────── */
 let editingMemo = null; // 지금 메모를 고치고 있는 항목 id
+let editingDue = null;  // 지금 마감일을 고치고 있는 항목 id
 
 function tools(it){
   const pri = Q.map(q =>
     `<button class="p${q.n}${it.q===q.n?" on":""}" title="${esc(q.n+" "+q.name+" ("+q.axis+")")}"
       onclick="setQ('${it.id}',${q.n})">${q.n}</button>`).join("");
+  const dueBtn = can("setdue")
+    ? `<button class="duebtn${it.due?" on":""}" title="마감일" onclick="toggleDue('${it.id}')">&#128197;</button>` : "";
+  const privBtn = canPriv(it)
+    ? `<button class="privbtn${it.priv?" on":""}" title="${it.priv?"나만 보입니다":"팀에 보입니다"}"
+        onclick="priv('${it.id}')">${it.priv?"&#128274;":"&#128275;"}</button>` : "";
   return `<span class="tools">
     <button class="star${it.today?" on":""}" title="오늘의 3" onclick="star('${it.id}')">&#9733;</button>
     <span class="pri">${pri}</span>
     <button class="wbtn${it.wait?" on":""}" title="대기중" onclick="wait('${it.id}')">&#9203;</button>
+    ${dueBtn}
     <button class="memobtn${it.memo?" on":""}" title="메모" onclick="toggleMemo('${it.id}')">&#9998;</button>
+    ${privBtn}
     <button class="del" title="삭제" onclick="del('${it.id}')">&#215;</button>
   </span>`;
 }
@@ -192,6 +208,17 @@ function memoEditor(it){
   </div>`;
 }
 
+function dueEditor(it){
+  return `<div class="memo-edit due-edit">
+    <input type="date" data-due-id="${esc(it.id)}" value="${esc(it.due || "")}">
+    <div class="memo-edit-btns">
+      <button type="button" onclick="saveDue('${it.id}')">저장</button>
+      <button type="button" class="ghost" onclick="saveDue('${it.id}', true)">날짜 지우기</button>
+      <button type="button" onclick="cancelDue()">취소</button>
+    </div>
+  </div>`;
+}
+
 function row(it, compact, pinned, rank){
   const over = it.due && it.due < TODAY;
   const tag = compact ? "" : `<span class="tag${it.tag==="개인"?" personal":""}">${esc(it.tag)}</span>`;
@@ -202,11 +229,14 @@ function row(it, compact, pinned, rank){
   // 오늘의 3에 고정된 항목은 위 고정칸과 사분면 칸에 동시에 나온다.
   // 편집창을 양쪽 다 띄우면 data-id가 겹쳐 저장이 엉뚱한 쪽에서 읽힌다.
   // 고정칸 쪽은 편집창을 띄우지 않는다 — 칸 쪽에서 열린다.
-  const edit = (editingMemo === it.id && !pinned) ? memoEditor(it) : "";
+  const lock = it.priv ? `<span class="lock" title="나만 보입니다">&#128274;</span>` : "";
+  const edit = pinned ? ""
+    : editingMemo === it.id ? memoEditor(it)
+    : editingDue === it.id ? dueEditor(it) : "";
   return `<li class="item${it.wait?" waiting":""}${edit?" editing":""}" data-id="${esc(it.id)}">
     ${num}
     <button class="chk" title="완료" onclick="complete('${it.id}')"></button>
-    <span class="t" title="${esc(it.title)}">${wait}${tag}${esc(it.title)}${dt}${memo}</span>
+    <span class="t" title="${esc(it.title)}">${lock}${wait}${tag}${esc(it.title)}${dt}${memo}</span>
     ${tools(it)}
     ${edit}
   </li>`;
@@ -319,9 +349,10 @@ function renderCal(){
     const day = isoDay(dt);
     const list = (byDay[day] || []).slice().sort(quadSort);
     const chips = list.slice(0, CAL_CHIPS).map(i =>
-      `<span class="calchip q${i.q || 0}${i.wait?" waiting":""}${i.due < TODAY?" over":""}" title="${esc(i.title)}">
+      `<span class="calchip q${i.q || 0}${i.wait?" waiting":""}${i.due < TODAY?" over":""}"
+        data-id="${esc(i.id)}" title="${esc(i.title)}${canSetDue()?" — 끌어서 날짜를 옮깁니다":""}">
         <button class="chk" title="완료" onclick="event.stopPropagation();complete('${i.id}')"></button>
-        <span class="ct">${esc(i.title)}</span></span>`).join("");
+        <span class="ct">${i.priv?"&#128274; ":""}${esc(i.title)}</span></span>`).join("");
     const more = list.length > CAL_CHIPS
       ? `<span class="calmore">+${list.length - CAL_CHIPS}</span>` : "";
     const cls = [
@@ -330,7 +361,7 @@ function renderCal(){
       day === calDay ? "on" : "",
       dt.getDay() === 0 ? "sun" : "",
     ].filter(Boolean).join(" ");
-    h += `<div class="calday${cls?" "+cls:""}" onclick="calPick('${day}')">
+    h += `<div class="calday${cls?" "+cls:""}" data-day="${day}" onclick="calPick('${day}')">
       <span class="d">${dt.getDate()}</span>
       <div class="calchips">${chips}${more}</div></div>`;
   }
@@ -364,6 +395,44 @@ function renderCal(){
   return h + `</div>`;
 }
 
+const canSetDue = () => can("setdue");
+
+/* 칸에서 칸으로 끌면 마감일이 그날로 옮겨간다. 노션까지 같이 바뀐다 —
+   매트릭스의 순서 드래그(브라우저에만 기억하는 것)와는 다른 일이다.
+   손가락으로는 HTML 드래그가 안 잡히므로, 날짜 버튼(&#128197;)으로도
+   똑같이 바꿀 수 있게 열어 뒀다. */
+function wireCalDrag(){
+  if (!canSetDue()) return;
+  const grid = body.querySelector(".calgrid");
+  if (!grid) return;
+  grid.querySelectorAll(".calchip").forEach(chip => {
+    chip.draggable = true;
+    chip.addEventListener("dragstart", e => {
+      e.dataTransfer.setData("text/due", chip.dataset.id);
+      e.dataTransfer.effectAllowed = "move";
+      chip.classList.add("dragging");
+    });
+    chip.addEventListener("dragend", () => chip.classList.remove("dragging"));
+  });
+  grid.querySelectorAll(".calday").forEach(cell => {
+    cell.addEventListener("dragover", e => {
+      if (!e.dataTransfer.types.includes("text/due")) return;
+      e.preventDefault();
+      cell.classList.add("drop-day");
+    });
+    cell.addEventListener("dragleave", e => {
+      if (!cell.contains(e.relatedTarget)) cell.classList.remove("drop-day");
+    });
+    cell.addEventListener("drop", e => {
+      cell.classList.remove("drop-day");
+      const id = e.dataTransfer.getData("text/due");
+      if (!id) return;
+      e.preventDefault();
+      moveDue(id, cell.dataset.day);
+    });
+  });
+}
+
 window.calShift = (delta) => {
   const [y, m] = calAnchor().split("-").map(Number);
   const d = new Date(y, m - 1 + delta, 1);
@@ -374,29 +443,71 @@ window.calShift = (delta) => {
 window.calToday = () => { calMonth = ""; calDay = ""; render(); };
 window.calPick = (day) => { calDay = calDay === day ? "" : day; render(); };
 
+/* ── 기록 ───────────────────────────────
+   일/주/월 중 하나로 묶어 본다. 기본은 최근 3개월치만 불러온다 — 몇 년 쌓인
+   뒤에도 탭을 여는 값이 같게 하려는 것이다. 더 옛날 것은 눌러서 늘린다. */
+const LOG_STEPS = [[90, "3개월"], [180, "6개월"], [365, "1년"], [0, "전체"]];
+const LOG_GROUPS = [["day", "일별"], ["week", "주별"], ["month", "월별"]];
+
+const stepLabel = (days) => (LOG_STEPS.find(([d]) => d === days) || [0, "전체"])[1];
+
+function weekStart(day){
+  const d = new Date(+day.slice(0,4), +day.slice(5,7)-1, +day.slice(8,10));
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 월요일 시작
+  return isoDay(d);
+}
+function logKey(done){
+  if (logGroup === "month") return done.slice(0, 7);
+  if (logGroup === "week") return weekStart(done);
+  return done;
+}
+function logLabel(key){
+  if (logGroup === "month") return `${+key.slice(0,4)}년 ${+key.slice(5,7)}월`;
+  if (logGroup === "week"){
+    const d = new Date(+key.slice(0,4), +key.slice(5,7)-1, +key.slice(8,10) + 6);
+    return `${md(key)} ~ ${md(isoDay(d))}`;
+  }
+  return key === TODAY ? "오늘" : md(key);
+}
+
 function renderLog(){
   if (!logLoaded) return `<div class="notice">불러오는 중…</div>`;
   const list = vdone();
   const by = {};
-  for (const d of list) (by[d.done] ||= []).push(d);
-  const days = Object.keys(by).sort().reverse();
-  if (!days.length) return `<div class="notice">최근 완료한 항목이 없습니다.</div>`;
-  let h = "";
-  for (const day of days){
-    h += `<div class="group"><h3>${day === TODAY ? "오늘" : md(day)}<span class="rule"></span>
-      <span class="cnt">${by[day].length}</span></h3><ul>`;
-    for (const d of by[day]){
+  for (const d of list) (by[logKey(d.done)] ||= []).push(d);
+  const keys = Object.keys(by).sort().reverse();
+
+  let h = `<div class="logbar"><span class="seg">` +
+    LOG_GROUPS.map(([k, name]) =>
+      `<button type="button" aria-pressed="${logGroup===k}" onclick="setLogGroup('${k}')">${name}</button>`
+    ).join("") +
+    `</span><span class="logrange">${logDays ? `최근 ${stepLabel(logDays)}` : "전체 기록"}</span></div>`;
+
+  if (!keys.length){
+    h += `<div class="notice">${logDays ? `최근 ${stepLabel(logDays)} 안에 완료한 항목이 없습니다.` : "완료한 항목이 없습니다."}</div>`;
+  }
+  for (const key of keys){
+    h += `<div class="group"><h3>${logLabel(key)}<span class="rule"></span>
+      <span class="cnt">${by[key].length}</span></h3><ul>`;
+    for (const d of by[key]){
+      const when = logGroup === "day" ? "" : `<span class="dt">${md(d.done)}</span>`;
       h += `<li class="item">
         <button class="chk done" title="되돌리기" onclick="undo('${d.id}')"></button>
         <span class="t" title="${esc(d.title)}">
-          <span class="tag${d.tag==="개인"?" personal":""}">${esc(d.tag)}</span>${esc(d.title)}</span>
+          <span class="tag${d.tag==="개인"?" personal":""}">${esc(d.tag)}</span>${esc(d.title)}${when}</span>
         <span class="tools always"><button class="undo" onclick="undo('${d.id}')">되돌리기</button></span>
       </li>`;
     }
     h += `</ul></div>`;
   }
+  // 늘릴 여지가 남아 있을 때만. 전체까지 왔으면 더 볼 것이 없다.
+  const next = LOG_STEPS[LOG_STEPS.findIndex(([d]) => d === logDays) + 1];
+  if (next) h += `<button class="more wide" onclick="moreLog(${next[0]})">그 이전 기록 보기 (${next[1]})</button>`;
   return h;
 }
+
+window.setLogGroup = (k) => { logGroup = k; render(); };
+window.moreLog = (days) => { logDays = days; logLoaded = false; render(); pullLog(); };
 
 /* 창 높이에 맞춰, 칸에 들어갈 만큼만 남기고 나머지는 더보기로 접는다.
    창을 키우면 저절로 더 보인다. (위젯 전용 — 웹은 아래 fitCellsWeb) */
@@ -610,6 +721,7 @@ function render(){
                  : tab === "cal"    ? renderCal()
                  : renderLog();
   if (tab === "matrix") requestAnimationFrame(fitCells);
+  if (tab === "cal") requestAnimationFrame(wireCalDrag);
 }
 
 const find = (id) => items.find(i => i.id === id);
@@ -656,6 +768,49 @@ window.undo = (id) => {
   render();
   send("undo", id).then(() => { pull(); pullLog(); });
 };
+/* 화면을 먼저 바꾸고 노션에 뒤따라 보낸다 — 다른 조작과 같은 방식이다 */
+function moveDue(id, day){
+  const it = find(id);
+  if (!it || it.due === day) return;
+  it.due = day;
+  editingDue = null;
+  render();
+  send("setdue", id, day).then(schedulePull);
+}
+window.moveDue = moveDue;
+
+window.toggleDue = (id) => {
+  editingDue = editingDue === id ? null : id;
+  editingMemo = null;
+  render();
+  if (editingDue){
+    requestAnimationFrame(() => {
+      const inp = body.querySelector(`.due-edit input[data-due-id="${CSS.escape(id)}"]`);
+      if (inp) inp.focus();
+    });
+  }
+};
+window.cancelDue = () => { editingDue = null; render(); };
+window.saveDue = (id, clear) => {
+  const inp = body.querySelector(`.due-edit input[data-due-id="${CSS.escape(id)}"]`);
+  const day = clear ? "" : (inp ? inp.value : "");
+  const it = find(id);
+  if (!it) return;
+  it.due = day;
+  editingDue = null;
+  render();
+  send("setdue", id, day).then(schedulePull);
+};
+
+window.priv = (id) => {
+  const it = find(id);
+  if (!it) return;
+  it.priv = !it.priv;
+  render();
+  toast(it.priv ? "나만 보이게 했습니다." : "팀에 다시 열었습니다.");
+  send("setpriv", id, it.priv).then(schedulePull);
+};
+
 window.expand = (n) => { expanded.has(n) ? expanded.delete(n) : expanded.add(n); render(); };
 
 window.toggleMemo = (id) => {
@@ -717,6 +872,15 @@ function fillFilters(){
   if (person !== "all" && !PEOPLE.includes(person)) person = "all";
 }
 
+/* '나만 보기'는 팀 DB에 넣을 때만 뜻이 있다. 업무·개인 DB에는 그 속성이 없다 */
+function syncPrivVisible(){
+  const wrap = el("#a-priv-wrap");
+  const tagSel = el("#a-tag");
+  const going = tagSel.hidden ? (SOURCES[0] || "") : tagSel.value;
+  wrap.hidden = !(isTeam && can("setpriv") && going === "팀");
+  if (wrap.hidden) el("#a-priv").checked = false;
+}
+
 function fillAddForm(){
   const tagSel = el("#a-tag");
   tagSel.hidden = SOURCES.length < 2; // 어차피 갈 곳이 하나뿐이면 고를 이유가 없다
@@ -726,6 +890,7 @@ function fillAddForm(){
   const qSel = el("#a-q");
   qSel.innerHTML = `<option value="">사분면</option>` +
     Q.map(q => `<option value="${q.n}">${q.n} ${esc(q.name)}</option>`).join("");
+  syncPrivVisible();
 }
 
 function openAdd(on){
@@ -733,6 +898,7 @@ function openAdd(on){
   f.hidden = !on;
   if (on){
     if (source !== "all") el("#a-tag").value = source;
+    syncPrivVisible();
     el("#a-title").focus();
   } else {
     f.reset();
@@ -740,6 +906,7 @@ function openAdd(on){
   if (tab === "matrix") requestAnimationFrame(fitCells);
 }
 
+el("#a-tag").addEventListener("change", syncPrivVisible);
 el("#add").addEventListener("click", () => openAdd(el("#addform").hidden));
 el("#a-cancel").addEventListener("click", () => openAdd(false));
 el("#addform").addEventListener("submit", async (e) => {
@@ -747,16 +914,19 @@ el("#addform").addEventListener("submit", async (e) => {
   const title = el("#a-title").value.trim();
   if (!title) return;
   const tag = el("#a-tag").value, q = el("#a-q").value, due = el("#a-due").value;
+  // 만들 때 같이 보낸다. 만들고 나서 잠그면 그 사이에 남에게 한 번 보인다.
+  const priv = !el("#a-priv-wrap").hidden && el("#a-priv").checked;
   openAdd(false);
   tab = "matrix";
   // 새 항목의 노션 id는 서버가 정한다. 화면에 미리 그리지 않고 바로 다시 읽는다
-  const r = await send("add", title, tag, due, q);
+  const r = await send("add", title, tag, due, q, priv);
   if (r && r.ok){ toast("추가했습니다."); pull(); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!el("#addform").hidden) openAdd(false);
   if (editingMemo) cancelMemo();
+  if (editingDue) cancelDue();
 });
 
 /* ── 탭 / 필터 ────────────────────────── */

@@ -17,6 +17,8 @@
  * 파일 밖으로 나가지 않는다.
  */
 
+import { syncTodo } from "./connectors/calendar.js";
+
 const PERSONAL = [
   ["업무", "0e928040351d4fdfae49f77e67e914e6"],
   ["개인", "1730d225784340f88e15f9af9d51ea78"],
@@ -192,9 +194,19 @@ function dbFor(who, tag) {
   return hit ? hit[1] : sources[0][1];
 }
 
+const bare = (id) => String(id || "").replace(/-/g, "");
+
 function denied() {
   const e = new Error("내 항목이 아니다");
   e.denied = true;
+  return e;
+}
+
+/* 화면이 말이 안 되는 값을 보냈을 때. 노션까지 가져가 봐야 404/400을 받고
+   "노션에 연결하지 못했다"가 뜰 뿐이라, 여기서 끊고 진짜 이유를 말한다. */
+function badInput(message, hint) {
+  const e = new Error(message);
+  e.bad = [message, hint || ""];
   return e;
 }
 
@@ -202,13 +214,17 @@ function denied() {
    화면이 보내온 id를 그대로 믿으면, 남의 항목 id를 손으로 넣는 것만으로
    남의 할 일을 완료 처리할 수 있다. */
 async function assertOwned(token, who, pageId) {
-  if (!who.team) return;
+  if (!who.team) return null;
   const page = await notionCall(token, `https://api.notion.com/v1/pages/${pageId}`, null, "GET");
-  const bare = (id) => String(id || "").replace(/-/g, "");
   const parent = bare(page.parent?.database_id);
   if (!sourcesFor(who).some(([, dbId]) => bare(dbId) === parent)) throw denied();
-  if (who.admin) return;
-  if ((page.properties?.["담당자"]?.select?.name || "") !== who.name) throw denied();
+  const owner = page.properties?.["담당자"]?.select?.name || "";
+  // 비공개는 주인만 건드린다. 관리자도 예외가 아니다 — 보이지도 않는 것을
+  // id만 알면 고칠 수 있게 두면 가리는 의미가 없다.
+  if (page.properties?.["비공개"]?.checkbox && owner !== who.name) throw denied();
+  if (who.admin) return page;
+  if (owner !== who.name) throw denied();
+  return page;
 }
 
 const QUADRANTS = [
@@ -218,7 +234,8 @@ const QUADRANTS = [
   [4, "언젠가", "안중요+안시급"],
 ];
 const QUADRANT_NUMS = QUADRANTS.map((q) => q[0]);
-const LOG_DAYS = 7;
+const LOG_DAYS = 7;          // 인자 없이 부를 때(= MCP의 list_done) 거슬러 보는 날 수
+const LOG_MAX_PAGES = 12;    // 한 DB에서 넘길 페이지 한도. 100줄씩이니 1200줄에서 멈춘다
 
 // {db_id: {1: "1 지금 당장 (중요+시급)", ...}} 워커가 살아 있는 동안만 유지된다.
 let optionNames = {};
@@ -244,6 +261,13 @@ function splitOption(name, num) {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+/* 오늘부터 며칠 전. days가 0이면 빈 문자열 — 자르지 않는다는 뜻이다. */
+function sinceISO(days) {
+  const n = Number(days);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
 }
 
 async function notionCall(token, url, payload, method) {
@@ -324,6 +348,7 @@ function parseRow(row, tag, fallbackOwner) {
     q: quadrantNum(select.name),
     today: !!p["오늘의 3"]?.checkbox,
     wait: !!p["대기중"]?.checkbox,
+    priv: !!p["비공개"]?.checkbox,
   };
 }
 
@@ -341,30 +366,69 @@ function parseDone(row, tag, fallbackOwner) {
   };
 }
 
-/* 담당자 조건은 화면이 아니라 노션 질의에 건다. 남의 줄은 워커 메모리에도
+/* 거르는 조건은 화면이 아니라 노션 질의에 건다. 남의 줄은 워커 메모리에도
    올라오지 않는다. */
-function ownerFilter(base, owner) {
-  if (!owner) return base;
-  return { and: [base, { property: "담당자", select: { equals: owner } }] };
+function allOf(conditions) {
+  const list = conditions.filter(Boolean);
+  return list.length === 1 ? list[0] : { and: list };
 }
 
-async function fetchRows(token, dbId, owner) {
-  const base = { property: "완료", checkbox: { equals: false } };
-  const payload = { filter: ownerFilter(base, owner), page_size: 100 };
-  const r = await notionCall(token, `https://api.notion.com/v1/databases/${dbId}/query`, payload, "POST");
-  return r.results;
+function ownerCond(owner) {
+  return owner ? { property: "담당자", select: { equals: owner } } : null;
 }
 
-async function fetchDoneRows(token, dbId, owner) {
-  // 완료일로 거르지 않고 정렬만 시킨 뒤 여기서 자른다.
-  // 완료일이 비어 있는 줄이 필터에 걸리면 통째로 사라지기 때문이다.
+/* 비공개로 표시한 항목은 주인 말고 아무에게도 안 보인다 — 관리자도 마찬가지다.
+   거르는 자리가 노션 질의라는 것이 요점이다. 남의 비공개 항목은 워커
+   메모리에 올라오지도 않으니 브라우저로 샐 길이 없다.
+   업무·개인 DB에는 이 속성이 아예 없으므로 팀 DB에만 건다. */
+function privacyCond(who, dbId) {
+  if (!who.team || dbId !== TEAM_DB) return null;
+  const mine = who.name ? [{ property: "담당자", select: { equals: who.name } }] : [];
+  return { or: [{ property: "비공개", checkbox: { equals: false } }, ...mine] };
+}
+
+async function fetchRows(token, dbId, who, owner) {
   const payload = {
-    filter: ownerFilter({ property: "완료", checkbox: { equals: true } }, owner),
-    sorts: [{ property: "완료일", direction: "descending" }],
+    filter: allOf([
+      { property: "완료", checkbox: { equals: false } },
+      ownerCond(owner),
+      privacyCond(who, dbId),
+    ]),
     page_size: 100,
   };
   const r = await notionCall(token, `https://api.notion.com/v1/databases/${dbId}/query`, payload, "POST");
   return r.results;
+}
+
+/* 완료일로 거르지 않고 정렬만 시킨 뒤 여기서 자른다. 완료일이 비어 있는
+   줄(노션에서 체크만 하고 버튼을 안 눌렀을 때)이 필터에 걸리면 통째로
+   사라지기 때문이다. 대신 기간 밖으로 넘어가면 더 넘기지 않는다 —
+   기록이 몇 년 쌓여도 불러오는 양은 보는 기간에 비례한다. */
+async function fetchDoneRows(token, dbId, who, owner, since) {
+  const rows = [];
+  let cursor = null;
+  for (let page = 0; page < LOG_MAX_PAGES; page++) {
+    const payload = {
+      filter: allOf([
+        { property: "완료", checkbox: { equals: true } },
+        ownerCond(owner),
+        privacyCond(who, dbId),
+      ]),
+      sorts: [{ property: "완료일", direction: "descending" }],
+      page_size: 100,
+    };
+    if (cursor) payload.start_cursor = cursor;
+    const r = await notionCall(token, `https://api.notion.com/v1/databases/${dbId}/query`, payload, "POST");
+    rows.push(...r.results);
+    if (!r.has_more || !r.next_cursor) break;
+    const last = r.results[r.results.length - 1];
+    const lastDone = (last?.properties?.["완료일"]?.date?.start || "").slice(0, 10);
+    // 완료일이 빈 줄은 내림차순 맨 뒤다. 거기까지 왔으면 더 볼 것이 없다.
+    if (!lastDone) break;
+    if (since && lastDone < since) break;
+    cursor = r.next_cursor;
+  }
+  return rows;
 }
 
 /* 누구 것만 볼지. 아무 말이 없거나 "all"이면 조건을 걸지 않는다 —
@@ -379,7 +443,7 @@ async function loadItems(token, who, owner) {
   const items = [];
   for (const [tag, dbId] of sourcesFor(who)) {
     await ensureOptions(token, dbId);
-    const rows = await fetchRows(token, dbId, ownerLimit(who, dbId, owner));
+    const rows = await fetchRows(token, dbId, who, ownerLimit(who, dbId, owner));
     items.push(...rows.map((r) => parseRow(r, tag, who.name)));
   }
   // 마감 가까운 순. 날짜 없는 것은 뒤로. (파이썬과 같은 키: !due, due, tag)
@@ -391,14 +455,15 @@ async function loadItems(token, who, owner) {
   return items;
 }
 
-async function loadDone(token, who, owner) {
-  const cutoff = new Date(Date.now() - (LOG_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+async function loadDone(token, who, owner, days) {
+  // days를 안 주면 예전처럼 일주일이다. 화면(기록 탭)은 90/180/365/0을 준다.
+  const cutoff = sinceISO(days === undefined || days === null || days === "" ? LOG_DAYS : days);
   const rows = [];
   for (const [tag, dbId] of sourcesFor(who)) {
-    const raw = await fetchDoneRows(token, dbId, ownerLimit(who, dbId, owner));
+    const raw = await fetchDoneRows(token, dbId, who, ownerLimit(who, dbId, owner), cutoff);
     for (const r of raw) {
       const item = parseDone(r, tag, who.name);
-      if (item.done && item.done >= cutoff) rows.push(item);
+      if (item.done && (!cutoff || item.done >= cutoff)) rows.push(item);
     }
   }
   rows.sort((a, b) => (a.done < b.done ? 1 : a.done > b.done ? -1 : 0));
@@ -424,12 +489,13 @@ async function patch(token, pageId, properties) {
   await notionCall(token, `https://api.notion.com/v1/pages/${pageId}`, { properties }, "PATCH");
 }
 
-async function complete(token, pageId) {
+async function complete(env, token, pageId) {
   await patch(token, pageId, {
     완료: { checkbox: true },
     완료일: { date: { start: todayISO() } },
     "오늘의 3": { checkbox: false },
   });
+  syncTodo(env, "remove", { pageId });
 }
 
 async function uncomplete(token, pageId) {
@@ -449,13 +515,26 @@ async function setWaiting(token, pageId, on) {
   await patch(token, pageId, { 대기중: { checkbox: !!on } });
 }
 
+async function setDue(env, token, pageId, due) {
+  const d = String(due || "").trim();
+  if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    throw badInput("날짜를 알아보지 못했다", "YYYY-MM-DD 형식이어야 합니다.");
+  }
+  await patch(token, pageId, { 마감일: d ? { date: { start: d } } : { date: null } });
+  syncTodo(env, d ? "upsert" : "remove", { pageId, due: d });
+}
+
+async function setPrivate(token, pageId, on) {
+  await patch(token, pageId, { 비공개: { checkbox: !!on } });
+}
+
 async function setMemo(token, pageId, text) {
   text = (text || "").trim();
   const rich = text ? [{ text: { content: text.slice(0, 2000) } }] : [];
   await patch(token, pageId, { 메모: { rich_text: rich } });
 }
 
-async function createItem(token, who, tag, title, due, quadrant) {
+async function createItem(env, token, who, tag, title, due, quadrant, priv) {
   const dbId = dbFor(who, tag);
   const properties = {
     "할 일": { title: [{ text: { content: title.slice(0, 2000) } }] },
@@ -465,21 +544,26 @@ async function createItem(token, who, tag, title, due, quadrant) {
   if (quadrant) properties["우선순위"] = { select: { name: quadrant } };
   // 담당자는 화면이 보낸 값이 아니라 로그인한 사람으로 정한다.
   if (dbId === TEAM_DB && who.name) properties["담당자"] = { select: { name: who.name } };
-  await notionCall(
+  // 만들 때 같이 건다. 만들고 나서 표시하면 그 사이에 남에게 한 번 보인다.
+  if (dbId === TEAM_DB && priv) properties["비공개"] = { checkbox: true };
+  const made = await notionCall(
     token,
     "https://api.notion.com/v1/pages",
     { parent: { database_id: dbId }, properties },
     "POST"
   );
+  if (due) syncTodo(env, "upsert", { pageId: made.id, title, due, owner: who.name });
 }
 
-async function trash(token, pageId) {
+async function trash(env, token, pageId) {
   // 완전 삭제가 아니라 노션 휴지통으로 보낸다.
   await notionCall(token, `https://api.notion.com/v1/pages/${pageId}`, { archived: true }, "PATCH");
+  syncTodo(env, "remove", { pageId });
 }
 
 function describe(err) {
   if (err.denied) return ["내 항목이 아니다", "새로고침하면 지금 볼 수 있는 것만 다시 불러옵니다."];
+  if (err.bad) return err.bad;
   const status = err.status;
   if (status === 401) return ["토큰이 거부됐다", "워커의 NOTION_TOKEN 시크릿을 다시 확인한다."];
   if (status === 403)
@@ -510,35 +594,48 @@ async function guarded(token, fn) {
    읽기(data/log)는 애초에 볼 수 있는 것만 불러오므로 확인할 것이 없다. */
 function owned(token, who, pageId, fn) {
   return guarded(token, async () => {
-    await assertOwned(token, who, pageId);
-    return fn();
+    const page = await assertOwned(token, who, pageId);
+    return fn(page);
   });
 }
 
+/* 핸들러는 (env, who, args)를 받는다. env가 필요한 것은 노션 토큰과,
+   캘린더 커넥터(worker/connectors/calendar.js)뿐이다. */
 const HANDLERS = {
-  data: (token, who, [owner]) => guarded(token, () => snapshot(token, who, owner)),
-  log: (token, who, [owner]) => guarded(token, () => loadDone(token, who, owner)),
-  done: (token, who, [pageId]) => owned(token, who, pageId, () => complete(token, pageId)),
-  undo: (token, who, [pageId]) => owned(token, who, pageId, () => uncomplete(token, pageId)),
-  setpri: (token, who, [pageId, num, tag]) =>
+  data: (env, token, who, [owner]) => guarded(token, () => snapshot(token, who, owner)),
+  log: (env, token, who, [owner, days]) => guarded(token, () => loadDone(token, who, owner, days)),
+  done: (env, token, who, [pageId]) => owned(token, who, pageId, () => complete(env, token, pageId)),
+  undo: (env, token, who, [pageId]) => owned(token, who, pageId, () => uncomplete(token, pageId)),
+  setpri: (env, token, who, [pageId, num, tag]) =>
     owned(token, who, pageId, () => {
       const n = Number(num);
       const name = QUADRANT_NUMS.includes(n) ? optionName(dbFor(who, tag), n) : null;
       return setPriority(token, pageId, name);
     }),
-  star: (token, who, [pageId, on]) => owned(token, who, pageId, () => setTodayFlag(token, pageId, !!on)),
-  waiting: (token, who, [pageId, on]) => owned(token, who, pageId, () => setWaiting(token, pageId, !!on)),
-  setmemo: (token, who, [pageId, text]) => owned(token, who, pageId, () => setMemo(token, pageId, text)),
-  add: async (token, who, [title, tag, due, quadrant]) => {
+  star: (env, token, who, [pageId, on]) => owned(token, who, pageId, () => setTodayFlag(token, pageId, !!on)),
+  waiting: (env, token, who, [pageId, on]) => owned(token, who, pageId, () => setWaiting(token, pageId, !!on)),
+  setmemo: (env, token, who, [pageId, text]) => owned(token, who, pageId, () => setMemo(token, pageId, text)),
+  setdue: (env, token, who, [pageId, due]) => owned(token, who, pageId, () => setDue(env, token, pageId, due)),
+  // 비공개는 팀 DB에만 있는 속성이다. 다른 DB의 페이지에 쓰려 하면 노션이
+  // 400을 뱉을 뿐이라, 여기서 먼저 끊고 이유를 말한다.
+  setpriv: (env, token, who, [pageId, on]) =>
+    owned(token, who, pageId, (page) => {
+      if (!page || bare(page.parent?.database_id) !== bare(TEAM_DB)) {
+        throw badInput("팀 할 일에만 쓸 수 있다", "업무·개인 DB에는 비공개 표시가 없습니다.");
+      }
+      return setPrivate(token, pageId, on);
+    }),
+  add: async (env, token, who, [title, tag, due, quadrant, priv]) => {
     title = (title || "").trim();
     if (!title) return { ok: false, error: "할 일을 적어주세요", hint: "" };
     const sources = sourcesFor(who);
     if (!sources.some(([t]) => t === tag)) tag = sources[0][0];
     const num = Number(quadrant);
     const name = QUADRANT_NUMS.includes(num) ? optionName(dbFor(who, tag), num) : null;
-    return guarded(token, () => createItem(token, who, tag, title, (due || "").trim() || null, name));
+    return guarded(token, () =>
+      createItem(env, token, who, tag, title, (due || "").trim() || null, name, !!priv));
   },
-  remove: (token, who, [pageId]) => owned(token, who, pageId, () => trash(token, pageId)),
+  remove: (env, token, who, [pageId]) => owned(token, who, pageId, () => trash(env, token, pageId)),
 };
 
 /* ── MCP 창구 ──────────────────────────
@@ -573,6 +670,11 @@ const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)�
 팀원끼리 서로의 할 일을 볼 수 있다(owner로 지정). 다만 고치고 완료 처리하는 것은
 자기 것만 된다. 남의 항목을 손대려 하면 거부된다 — 그게 정상이고, 그 사람에게
 말해서 직접 하게 한다.
+
+남에게 보일 일이 아니면 **비공개**로 넣는다(add_todo의 private, 또는 set_private).
+비공개는 주인 말고 아무에게도 안 보인다. 개인 사정·병원·이직처럼 팀과 무관한 일,
+사람에 대한 이야기가 그렇다. 애매하면 묻지 말고 비공개로 넣는다 — 나중에 여는 것이
+이미 보인 것을 되돌리는 것보다 쉽다.
 
 ## 먼저 권하기
 
@@ -628,6 +730,7 @@ const MCP_TOOLS = [
         quadrant: { type: "integer", description: "사분면 1~4. 모르면 비운다", minimum: 1, maximum: 4 },
         due: { type: "string", description: "마감일 YYYY-MM-DD" },
         memo: { type: "string", description: "결과물 정의나 비고" },
+        private: { type: "boolean", description: "나만 보이게 할 것인지. 팀 할 일에만 해당" },
         source: { type: "string", description: "넣을 곳. 고를 수 있을 때만 쓴다" },
       },
       required: ["title"],
@@ -673,6 +776,28 @@ const MCP_TOOLS = [
   {
     name: "set_waiting",
     description: "남의 회신을 기다리는 중으로 표시하거나 푼다.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, on: { type: "boolean" } },
+      required: ["id", "on"],
+    },
+  },
+  {
+    name: "set_due",
+    description: "마감일을 옮기거나 지운다. 빈 문자열을 주면 날짜를 지운다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        due: { type: "string", description: "YYYY-MM-DD. 비우면 날짜 없음" },
+      },
+      required: ["id", "due"],
+    },
+  },
+  {
+    name: "set_private",
+    description:
+      "이 할 일을 나만 보게 하거나(비공개), 다시 팀에 열어 준다. 팀 할 일에만 쓸 수 있다.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, on: { type: "boolean" } },
@@ -786,6 +911,7 @@ function formatItems(data) {
       if (i.today) bits.push("오늘의3");
       if (i.wait) bits.push("대기중");
       if (i.due) bits.push(`마감 ${i.due}`);
+      if (i.priv) bits.push("비공개");
       if (i.owner) bits.push(i.owner);
       lines.push(`- ${i.title}${bits.length ? `  (${bits.join(", ")})` : ""}`);
       if (i.memo) lines.push(`    메모: ${i.memo}`);
@@ -804,7 +930,7 @@ function formatDone(rows) {
    그래야 웹에서 한 일과 Claude로 한 일이 어긋나지 않는다. */
 async function runTool(env, who, name, args) {
   const token = env.NOTION_TOKEN;
-  const call = (handler, list) => HANDLERS[handler](token, who, list);
+  const call = (handler, list) => HANDLERS[handler](env, token, who, list);
   const id = String(args.id || "");
 
   switch (name) {
@@ -819,7 +945,7 @@ async function runTool(env, who, name, args) {
     }
     case "add_todo": {
       const tag = args.source || sourcesFor(who)[0][0];
-      const r = await call("add", [args.title, tag, args.due, args.quadrant]);
+      const r = await call("add", [args.title, tag, args.due, args.quadrant, args.private]);
       if (!r.ok) return r;
       // 메모는 만들면서 같이 넣을 수 없다. 방금 만든 줄을 찾아 붙인다.
       if (args.memo) {
@@ -833,6 +959,8 @@ async function runTool(env, who, name, args) {
     case "uncomplete_todo": return unwrap(await call("undo", [id]), "완료를 되돌렸다.");
     case "set_priority":    return unwrap(await call("setpri", [id, args.quadrant, args.source]), `${args.quadrant}번으로 옮겼다.`);
     case "set_memo":        return unwrap(await call("setmemo", [id, args.memo]), "메모를 저장했다.");
+    case "set_due":         return unwrap(await call("setdue", [id, args.due]), args.due ? `마감일을 ${args.due}로 옮겼다.` : "마감일을 지웠다.");
+    case "set_private":     return unwrap(await call("setpriv", [id, args.on]), args.on ? "나만 보이게 했다." : "팀에 다시 열었다.");
     case "set_today":       return unwrap(await call("star", [id, args.on]), args.on ? "오늘의 3에 고정했다." : "고정을 풀었다.");
     case "set_waiting":     return unwrap(await call("waiting", [id, args.on]), args.on ? "대기중으로 표시했다." : "대기중을 풀었다.");
     case "remove_todo":     return unwrap(await call("remove", [id]), "지웠다(노션 휴지통).");
@@ -993,7 +1121,7 @@ export default {
       } catch (_) {
         // 빈 본문(인자 없는 호출)도 허용한다
       }
-      const result = await handler(env.NOTION_TOKEN, who, args);
+      const result = await handler(env, env.NOTION_TOKEN, who, args);
       return Response.json(result);
     }
 
