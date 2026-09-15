@@ -5,12 +5,15 @@ const body = el("#body");
 let Q = [];
 let TODAY = "";
 let SOURCES = ["업무", "개인"];
+let PEOPLE = [];   // 관리자로 로그인했을 때만 채워진다. 비면 담당자 줄이 안 뜬다
+let ME = "";       // 내 담당자 이름 (팀 모드일 때만)
 let items = [];
 let doneItems = [];
 let logLoaded = false;
 
 let tab = "matrix";
 let source = "all";
+let person = "all"; // 담당자 필터. 관리자만 쓴다
 let expanded = new Set();
 let toastTimer = null;
 let pullTimer = null;
@@ -140,6 +143,10 @@ async function pull(){
   }
   const d = r.data;
   TODAY = d.today; Q = d.quads; SOURCES = d.sources; items = d.items;
+  PEOPLE = d.people || []; ME = d.me || "";
+  // 하단 링크는 성준 개인 claude.ai 프로젝트로 간다. 팀원은 열지 못하므로 숨긴다.
+  el("#assistant-link").hidden = d.team === true && !d.admin;
+  fillFilters();
   fillAddForm();
   render();
 }
@@ -207,8 +214,9 @@ function dateSort(a, b){
   return (a.due || "").localeCompare(b.due || "");
 }
 
-const view  = () => source === "all" ? items : items.filter(i => i.tag === source);
-const vdone = () => source === "all" ? doneItems : doneItems.filter(i => i.tag === source);
+const mine  = (list) => person === "all" ? list : list.filter(i => i.owner === person);
+const view  = () => { const l = mine(items);     return source === "all" ? l : l.filter(i => i.tag === source); };
+const vdone = () => { const l = mine(doneItems); return source === "all" ? l : l.filter(i => i.tag === source); };
 
 function renderMatrix(){
   const list = view();
@@ -478,11 +486,15 @@ function render(){
   stat.title = `오늘의 3 ${pin}/3` + (q1 ? `, ${Q[0] ? Q[0].name : "1"} ${q1}건` : "")
              + (un ? `, 미분류 ${un}건` : "");
 
-  el("#n-all").textContent  = items.length;
-  el("#n-work").textContent = items.filter(i=>i.tag==="업무").length;
-  el("#n-mine").textContent = items.filter(i=>i.tag==="개인").length;
+  const pool = mine(items);
+  document.querySelectorAll("#src .n").forEach(sp => {
+    const k = sp.dataset.count;
+    sp.textContent = k === "all" ? pool.length : pool.filter(i => i.tag === k).length;
+  });
   document.querySelectorAll("#src button").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.src === source)));
+  document.querySelectorAll("#who button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.who === person)));
   document.querySelectorAll('[role="tab"]').forEach(b =>
     b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
 
@@ -558,6 +570,34 @@ window.saveMemo = (id) => {
 };
 
 /* ── 추가 폼 ──────────────────────────── */
+/* 보기 범위와 담당자 줄은 사람마다 다르므로 받아온 데이터로 그린다.
+   팀원은 '팀' 하나만, 관리자는 업무/개인/팀에 담당자 줄까지 본다. */
+const SRC_CLASS = {"업무":"work", "개인":"mine", "팀":"team"};
+
+function chip(attr, key, label, count){
+  const cls = SRC_CLASS[key] ? ` class="${SRC_CLASS[key]}"` : "";
+  const n = count ? ` <span class="n" data-count="${esc(key)}"></span>` : "";
+  return `<button type="button" data-${attr}="${esc(key)}"${cls} aria-pressed="false">${esc(label)}${n}</button>`;
+}
+
+function fillFilters(){
+  const keys = ["all", ...SOURCES];
+  el("#src").innerHTML = [chip("src", "all", "전체", true),
+    ...SOURCES.map(t => chip("src", t, t, true))].join("");
+  if (!keys.includes(source)) source = "all";
+
+  const who = el("#who");
+  who.hidden = PEOPLE.length < 2; // 혼자뿐이면 고를 것이 없다
+  if (who.hidden){
+    person = "all";
+    who.innerHTML = "";
+    return;
+  }
+  who.innerHTML = [chip("who", "all", "전체"),
+    ...PEOPLE.map(p => chip("who", p, p))].join("");
+  if (person !== "all" && !PEOPLE.includes(person)) person = "all";
+}
+
 function fillAddForm(){
   const tagSel = el("#a-tag");
   if (tagSel.options.length !== SOURCES.length){
@@ -606,8 +646,15 @@ document.querySelectorAll('[role="tab"]').forEach(b =>
     render();
     if (tab === "log" && !logLoaded) pullLog();
   }));
-document.querySelectorAll("#src button").forEach(b =>
-  b.addEventListener("click", () => { source = b.dataset.src; render(); }));
+// 버튼을 다시 그리므로 낱개가 아니라 줄에 붙인다.
+el("#src").addEventListener("click", e => {
+  const b = e.target.closest("button[data-src]");
+  if (b){ source = b.dataset.src; render(); }
+});
+el("#who").addEventListener("click", e => {
+  const b = e.target.closest("button[data-who]");
+  if (b){ person = b.dataset.who; render(); }
+});
 
 /* ── 창 조작 ──────────────────────────── */
 el("#reload").addEventListener("click", () => {

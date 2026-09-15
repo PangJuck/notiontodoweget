@@ -1,7 +1,7 @@
 <section class="widget" id="w">
   <div class="bar pywebview-drag-region">
     <h2>할 일 <span class="brand">(Ulick To-do)</span></h2>
-    <span class="ver" id="ver" title="빌드 버전">v1.2.0</span>
+    <span class="ver" id="ver" title="빌드 버전">v1.3.0</span>
     <span class="sub" id="stat"></span>
     <span class="spacer"></span>
     <span class="zoomctl" title="글자 크기">
@@ -24,11 +24,11 @@
     <button class="addbtn" id="add">+ 추가</button>
   </div>
 
-  <div class="src" id="src" role="group" aria-label="보기 범위">
-    <button data-src="all" aria-pressed="true">전체 <span class="n" id="n-all"></span></button>
-    <button data-src="업무" class="work" aria-pressed="false">업무 <span class="n" id="n-work"></span></button>
-    <button data-src="개인" class="mine" aria-pressed="false">개인 <span class="n" id="n-mine"></span></button>
-  </div>
+  <!-- 버튼은 app.js가 그린다. 사람마다 볼 수 있는 DB가 다르기 때문이다. -->
+  <div class="src" id="src" role="group" aria-label="보기 범위"></div>
+
+  <!-- 담당자 줄. 관리자로 로그인했을 때만 채워진다. -->
+  <div class="src who" id="who" role="group" aria-label="담당자" hidden></div>
 
   <form class="addform" id="addform" hidden>
     <input id="a-title" placeholder="할 일 (동사형으로, 기한까지)" autocomplete="off">

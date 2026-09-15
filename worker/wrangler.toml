@@ -7,3 +7,11 @@ compatibility_date = "2024-09-23"
 [assets]
 directory = "../ui"
 binding = "ASSETS"
+
+# 팀 모드용. TEAM 시크릿을 넣기 전까지는 쓰이지 않는다.
+# ACCESS_AUD는 Zero Trust > Access > Applications > 앱 > 개요의
+# "Application Audience (AUD) Tag" 값이다. 비밀은 아니지만 이 앱을 특정하는
+# 값이라, 비어 있으면 팀 모드가 아예 켜지지 않는다(열려버리는 쪽이 아니라).
+[vars]
+ACCESS_DOMAIN = "ulicktodo.cloudflareaccess.com"
+ACCESS_AUD = ""
