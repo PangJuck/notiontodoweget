@@ -8,7 +8,6 @@ let SOURCES = ["업무", "개인"];
 let PEOPLE = [];   // 팀 모드일 때 담당자 목록. 비면 담당자 줄이 안 뜬다
 let ME = "";       // 내 담당자 이름 (팀 모드일 때만)
 let isAdmin = true;
-let isTeam = false;
 let items = [];
 let doneItems = [];
 let logLoaded = false;
@@ -29,7 +28,6 @@ const md = (iso) => iso ? `${+iso.slice(5,7)}/${+iso.slice(8,10)}` : "";
 /* 위젯(파이썬)에는 아직 없는 창구가 있다. 있는 쪽에서만 그 기능을 켠다 —
    없는 걸 불러서 오류를 내느니 버튼을 안 보이는 편이 낫다. */
 const can = (name) => !!(window.Backend && Backend[name]);
-const canPriv = (it) => isTeam && it.tag === "팀" && can("setpriv");
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 /* ── 글자 크기 (웹판 전용) ─────────────────
@@ -155,7 +153,6 @@ async function pull(){
   const d = r.data;
   TODAY = d.today; Q = d.quads; SOURCES = d.sources; items = d.items;
   PEOPLE = d.people || []; ME = d.me || ""; isAdmin = d.admin !== false;
-  isTeam = d.team === true;
   // 하단 링크는 성준 개인 claude.ai 프로젝트로 간다. 팀원은 열지 못하므로 숨긴다.
   el("#assistant-link").hidden = d.team === true && !d.admin;
   fillFilters();
@@ -184,16 +181,12 @@ function tools(it){
       onclick="setQ('${it.id}',${q.n})">${q.n}</button>`).join("");
   const dueBtn = can("setdue")
     ? `<button class="duebtn${it.due?" on":""}" title="마감일" onclick="toggleDue('${it.id}')">&#128197;</button>` : "";
-  const privBtn = canPriv(it)
-    ? `<button class="privbtn${it.priv?" on":""}" title="${it.priv?"나만 보입니다":"팀에 보입니다"}"
-        onclick="priv('${it.id}')">${it.priv?"&#128274;":"&#128275;"}</button>` : "";
   return `<span class="tools">
     <button class="star${it.today?" on":""}" title="오늘의 3" onclick="star('${it.id}')">&#9733;</button>
     <span class="pri">${pri}</span>
     <button class="wbtn${it.wait?" on":""}" title="대기중" onclick="wait('${it.id}')">&#9203;</button>
     ${dueBtn}
     <button class="memobtn${it.memo?" on":""}" title="메모" onclick="toggleMemo('${it.id}')">&#9998;</button>
-    ${privBtn}
     <button class="del" title="삭제" onclick="del('${it.id}')">&#215;</button>
   </span>`;
 }
@@ -229,14 +222,13 @@ function row(it, compact, pinned, rank){
   // 오늘의 3에 고정된 항목은 위 고정칸과 사분면 칸에 동시에 나온다.
   // 편집창을 양쪽 다 띄우면 data-id가 겹쳐 저장이 엉뚱한 쪽에서 읽힌다.
   // 고정칸 쪽은 편집창을 띄우지 않는다 — 칸 쪽에서 열린다.
-  const lock = it.priv ? `<span class="lock" title="나만 보입니다">&#128274;</span>` : "";
   const edit = pinned ? ""
     : editingMemo === it.id ? memoEditor(it)
     : editingDue === it.id ? dueEditor(it) : "";
   return `<li class="item${it.wait?" waiting":""}${edit?" editing":""}" data-id="${esc(it.id)}">
     ${num}
     <button class="chk" title="완료" onclick="complete('${it.id}')"></button>
-    <span class="t" title="${esc(it.title)}">${lock}${wait}${tag}${esc(it.title)}${dt}${memo}</span>
+    <span class="t" title="${esc(it.title)}">${wait}${tag}${esc(it.title)}${dt}${memo}</span>
     ${tools(it)}
     ${edit}
   </li>`;
@@ -352,7 +344,7 @@ function renderCal(){
       `<span class="calchip q${i.q || 0}${i.wait?" waiting":""}${i.due < TODAY?" over":""}"
         data-id="${esc(i.id)}" title="${esc(i.title)}${canSetDue()?" — 끌어서 날짜를 옮깁니다":""}">
         <button class="chk" title="완료" onclick="event.stopPropagation();complete('${i.id}')"></button>
-        <span class="ct">${i.priv?"&#128274; ":""}${esc(i.title)}</span></span>`).join("");
+        <span class="ct">${esc(i.title)}</span></span>`).join("");
     const more = list.length > CAL_CHIPS
       ? `<span class="calmore">+${list.length - CAL_CHIPS}</span>` : "";
     const cls = [
@@ -802,15 +794,6 @@ window.saveDue = (id, clear) => {
   send("setdue", id, day).then(schedulePull);
 };
 
-window.priv = (id) => {
-  const it = find(id);
-  if (!it) return;
-  it.priv = !it.priv;
-  render();
-  toast(it.priv ? "나만 보이게 했습니다." : "팀에 다시 열었습니다.");
-  send("setpriv", id, it.priv).then(schedulePull);
-};
-
 window.expand = (n) => { expanded.has(n) ? expanded.delete(n) : expanded.add(n); render(); };
 
 window.toggleMemo = (id) => {
@@ -872,15 +855,6 @@ function fillFilters(){
   if (person !== "all" && !PEOPLE.includes(person)) person = "all";
 }
 
-/* '나만 보기'는 팀 DB에 넣을 때만 뜻이 있다. 업무·개인 DB에는 그 속성이 없다 */
-function syncPrivVisible(){
-  const wrap = el("#a-priv-wrap");
-  const tagSel = el("#a-tag");
-  const going = tagSel.hidden ? (SOURCES[0] || "") : tagSel.value;
-  wrap.hidden = !(isTeam && can("setpriv") && going === "팀");
-  if (wrap.hidden) el("#a-priv").checked = false;
-}
-
 function fillAddForm(){
   const tagSel = el("#a-tag");
   tagSel.hidden = SOURCES.length < 2; // 어차피 갈 곳이 하나뿐이면 고를 이유가 없다
@@ -890,7 +864,6 @@ function fillAddForm(){
   const qSel = el("#a-q");
   qSel.innerHTML = `<option value="">사분면</option>` +
     Q.map(q => `<option value="${q.n}">${q.n} ${esc(q.name)}</option>`).join("");
-  syncPrivVisible();
 }
 
 function openAdd(on){
@@ -898,7 +871,6 @@ function openAdd(on){
   f.hidden = !on;
   if (on){
     if (source !== "all") el("#a-tag").value = source;
-    syncPrivVisible();
     el("#a-title").focus();
   } else {
     f.reset();
@@ -906,7 +878,6 @@ function openAdd(on){
   if (tab === "matrix") requestAnimationFrame(fitCells);
 }
 
-el("#a-tag").addEventListener("change", syncPrivVisible);
 el("#add").addEventListener("click", () => openAdd(el("#addform").hidden));
 el("#a-cancel").addEventListener("click", () => openAdd(false));
 el("#addform").addEventListener("submit", async (e) => {
@@ -914,12 +885,10 @@ el("#addform").addEventListener("submit", async (e) => {
   const title = el("#a-title").value.trim();
   if (!title) return;
   const tag = el("#a-tag").value, q = el("#a-q").value, due = el("#a-due").value;
-  // 만들 때 같이 보낸다. 만들고 나서 잠그면 그 사이에 남에게 한 번 보인다.
-  const priv = !el("#a-priv-wrap").hidden && el("#a-priv").checked;
   openAdd(false);
   tab = "matrix";
   // 새 항목의 노션 id는 서버가 정한다. 화면에 미리 그리지 않고 바로 다시 읽는다
-  const r = await send("add", title, tag, due, q, priv);
+  const r = await send("add", title, tag, due, q);
   if (r && r.ok){ toast("추가했습니다."); pull(); }
 });
 document.addEventListener("keydown", (e) => {

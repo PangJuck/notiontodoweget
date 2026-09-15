@@ -562,8 +562,7 @@ class Api:
     def setmemo(self, page_id, text):
         return guarded(set_memo, page_id, text)
 
-    def add(self, title, tag, due, quadrant=None, priv=False):
-        # priv(비공개)는 팀 DB에만 있는 속성이다. 위젯은 업무·개인만 보므로 버린다.
+    def add(self, title, tag, due, quadrant=None):
         title = (title or "").strip()
         if not title:
             return {"ok": False, "error": "할 일을 적어주세요", "hint": ""}

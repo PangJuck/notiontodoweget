@@ -18,7 +18,7 @@
   }
 
   const METHODS = [
-    "data", "log", "done", "undo", "setpri", "star", "waiting", "setmemo", "setdue", "setpriv",
+    "data", "log", "done", "undo", "setpri", "star", "waiting", "setmemo", "setdue",
     "add", "remove",
   ];
   const backend = { chrome: false };

@@ -3,8 +3,8 @@
  *
  *   cd worker && npm test
  *
- * 보는 것은 하나다 — **남의 것이 새어 나가지 않는가.** 거르개가 노션 질의에
- * 실려 나가는지, 거부된 요청이 노션에 쓰기를 시도조차 안 하는지까지 본다.
+ * 보는 것은 하나다 — **남의 것이 새어 나가지 않는가.** 누가 어느 DB를 묻게
+ * 되는지, 거부된 요청이 노션에 쓰기를 시도조차 안 하는지까지 본다.
  * 노션에 붙지 않으므로 토큰도 네트워크도 필요 없다.
  */
 import crypto from "node:crypto";
@@ -13,7 +13,7 @@ import worker from "../index.js";
 const AUD = "test-aud";
 const DOMAIN = "team.cloudflareaccess.com";
 const TEAM_DB = "6f9008aa63f249109b6ed29a374b529d";
-const WORK_DB = "0e928040351d4fdfae49f77e67e914e6";
+const PERSONAL_DB = "1730d225784340f88e15f9af9d51ea78";
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const jwk = { ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256" };
@@ -77,17 +77,15 @@ console.log("── 팀원(가영)");
   const { out, calls } = await api("ga@x.com", "data");
   const q = queries(calls);
   ok("자기가 볼 수 있는 DB만 묻는다", q.length === 1 && dbOf(q[0]) === TEAM_DB, q.map(dbOf).join(","));
-  const f = JSON.stringify(q[0].body.filter);
-  ok("비공개 거르개가 질의에 실려 나간다", f.includes('"비공개"') && f.includes('"가영"'));
-  ok("질의가 or 안에 내 이름만 담는다", /"or":\[\{"property":"비공개"[^\]]*"가영"/.test(f), f.slice(0, 200));
+  ok("성준의 업무·개인 DB는 묻지도 않는다", !q.some(c => dbOf(c) !== TEAM_DB));
   ok("응답이 성공", out.ok === true);
 }
 {
   const { calls } = await api("ga@x.com", "log", ["", 90]);
   const q = queries(calls);
   const f = JSON.stringify(q[0].body);
-  ok("기록도 같은 거르개를 지난다", f.includes('"비공개"') && f.includes('"완료일"'));
-  ok("기록은 완료된 것만", f.includes('"완료","checkbox":{"equals":true}') || f.includes('"property":"완료"'));
+  ok("기록도 팀 DB만 묻는다", q.length === 1 && dbOf(q[0]) === TEAM_DB);
+  ok("기록은 완료된 것만, 완료일 내림차순", f.includes('"완료"') && f.includes('"완료일"') && f.includes('descending'));
 }
 {
   pages["p-mine"] = { parent: TEAM_DB, owner: "가영", priv: false };
@@ -105,38 +103,17 @@ console.log("── 팀원(가영)");
   const { out } = await api("ga@x.com", "setdue", ["p-mine", "2026/10/01"]);
   ok("형식이 틀린 날짜는 노션까지 안 간다", out.ok === false && out.error === "날짜를 알아보지 못했다", out.error);
 }
-{
-  const { out, calls } = await api("ga@x.com", "setpriv", ["p-mine", true]);
-  const patch = calls.find(c => c.method === "PATCH");
-  ok("비공개를 켤 수 있다", out.ok === true && patch.body.properties["비공개"].checkbox === true);
-}
-
 console.log("── 관리자(성준)");
 {
   const { calls } = await api("sj@x.com", "data");
   const q = queries(calls);
   ok("세 DB를 다 묻는다", q.length === 3, q.map(dbOf).join(","));
-  const personal = q.filter(c => dbOf(c) !== TEAM_DB);
-  ok("업무·개인 DB에는 비공개 조건을 걸지 않는다",
-     personal.every(c => !JSON.stringify(c.body.filter).includes("비공개")));
-  const team = q.find(c => dbOf(c) === TEAM_DB);
-  ok("팀 DB에는 건다(관리자도 남의 비공개는 못 본다)", JSON.stringify(team.body.filter).includes("비공개"));
-}
-{
-  pages["p-secret"] = { parent: TEAM_DB, owner: "창준", priv: true };
-  const { out, calls } = await api("sj@x.com", "setdue", ["p-secret", "2026-10-01"]);
-  ok("관리자도 남의 비공개 항목은 못 고친다", out.ok === false && out.error === "내 항목이 아니다");
-  ok("쓰기 시도 자체가 없다", !calls.some(c => c.method === "PATCH"));
+  ok("개인 DB가 그 안에 있다(성준만 본다)", q.some(c => dbOf(c) === PERSONAL_DB));
 }
 {
   pages["p-open"] = { parent: TEAM_DB, owner: "창준", priv: false };
   const { out } = await api("sj@x.com", "setdue", ["p-open", "2026-10-01"]);
-  ok("관리자는 팀에 열린 항목은 고칠 수 있다(전과 같음)", out.ok === true);
-}
-{
-  pages["p-work"] = { parent: WORK_DB, owner: "", priv: false };
-  const { out } = await api("sj@x.com", "setpriv", ["p-work", true]);
-  ok("업무 DB에는 비공개를 못 건다", out.ok === false && out.error === "팀 할 일에만 쓸 수 있다", out.error);
+  ok("관리자는 팀 항목을 고칠 수 있다", out.ok === true);
 }
 
 console.log("── 캘린더 커넥터 (아직 안 붙인 상태)");
