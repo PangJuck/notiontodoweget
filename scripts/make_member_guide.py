@@ -1,5 +1,12 @@
 """팀원에게 건넬 안내 파일(.md)과 새 TEAM 시크릿을 한 번에 만든다.
 
+안내문 내용만 바뀌었으면 토큰을 다시 넣을 것 없이:
+
+    python scripts\\make_member_guide.py --refresh
+
+이미 만들어 둔 guides\\*.md에서 토큰을 그대로 꺼내 본문만 새로 쓴다.
+
+
 팀원이 할 일은 받은 .md 하나를 자기 Claude에 던지는 것뿐이다. 그 안에
 설정 명령이 토큰까지 채워진 채로 들어 있어서, Claude가 읽고 스스로 붙는다.
 
@@ -9,6 +16,7 @@
 1:1로 건네고, 다 쓰면 지운다. guides/ 폴더는 git에 올라가지 않는다.
 """
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -37,7 +45,16 @@ claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-A
 **3.** 연결됐으면 `list_todos` 를 한 번 불러서 지금 남은 할 일을 보여줘.
    (처음이면 비어 있는 게 정상이다.)
 
-**4.** 마지막으로 아래 "쓰는 법"을 이 사람에게 짧게 안내해줘.
+**4.** 마지막으로 이 세 가지를 짧게 안내해줘:
+
+   - **그냥 말하면 된다.** 명령어를 외울 필요 없다.
+     "오늘 할 일 뭐 남았어?", "○○ 내일까지 넣어줘", "○○ 끝냈어"
+   - **슬래시 명령 두 개가 생겼다.** `/` 를 치고 `ulick` 이라고 치면 걸러진다.
+     `morning` = 아침 정리 (남은 일 훑고 오늘 끝낼 3개 고르기)
+     `evening` = 퇴근 정리 (오늘 한 일 정리, 내일 첫 일 정하기)
+     목록에 안 보이면 Claude Code를 껐다 켜라고 알려줘.
+   - **작업하다 미룬 일이 생기면 내가 먼저 물어본다.** "Ulick To-do에 넣어둘까요?"
+     하고 한 줄로. 필요 없으면 아니라고 하면 되고, 그 세션에서 다시 묻지 않는다.
 
 설정은 이 컴퓨터에 한 번만 하면 되고, 다음부터는 어느 폴더에서 Claude를 켜도
 바로 쓸 수 있다.
@@ -45,6 +62,19 @@ claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-A
 ---
 
 ## 쓰는 법
+
+### 하루의 시작과 끝 — 슬래시 명령
+
+Claude Code에서 **`/`** 를 치고 **`ulick`** 이라고 쳐보세요. 두 개가 뜹니다.
+
+| | 언제 | 하는 일 |
+|---|---|---|
+| **아침 정리** (`morning`) | 하루 시작할 때 | 남은 일 훑기 → 지난 마감 짚기 → **오늘 끝낼 3개** 고르기 |
+| **퇴근 정리** (`evening`) | 하루 끝낼 때 | 오늘 한 일 정리 → 못 끝낸 것 내일로 → **내일 첫 일** 정하기 |
+
+이 두 개만 습관이 되면 나머지는 저절로 굴러갑니다.
+
+### 평소에는 — 그냥 말하기
 
 설정이 끝나면 Claude에게 그냥 말로 하시면 됩니다.
 
@@ -80,8 +110,39 @@ claude mcp add --transport http --scope user ulick-todo {url}/mcp --header "CF-A
   물어도 됩니다
 - **고치고 완료 처리하는 건 본인 것만 됩니다.** 남의 항목은 막힙니다 — 실수로
   남의 할 일을 지우는 일을 없애려는 것입니다
+- **작업하다 미룬 일이 생기면 Claude가 먼저 물어봅니다.** "Ulick To-do에 넣어둘까요?"
+  하고 한 줄로요. 필요 없으면 아니라고 하시면 되고, 그 세션에서는 다시 안 묻습니다
 - 이 파일에는 {name}님 전용 열쇠가 들어 있습니다. 다른 사람에게 넘기지 마세요
 """
+
+
+# 안내문 안의 설정 명령에서 토큰을 도로 꺼낸다. --refresh가 이걸로 돈다.
+TOKEN_RE = re.compile(
+    r'CF-Access-Client-Id:\s*(\S+?)"\s*--header\s*"CF-Access-Client-Secret:\s*(\S+?)"'
+)
+URL_RE = re.compile(r"(https://\S+?)/mcp\b")
+
+
+def refresh():
+    """토큰은 그대로 두고 안내문만 새 틀로 다시 쓴다."""
+    existing = sorted(OUT.glob("*.md")) if OUT.exists() else []
+    if not existing:
+        sys.exit(f"{OUT} 에 안내 파일이 없다. 먼저 --refresh 없이 한 번 실행하세요.")
+    for path in existing:
+        old = path.read_text(encoding="utf-8")
+        token = TOKEN_RE.search(old)
+        url = URL_RE.search(old)
+        if not token or not url:
+            print(f"   건너뜀 ({path.name}): 토큰을 찾지 못했다")
+            continue
+        path.write_text(
+            GUIDE.format(name=path.stem, url=url.group(1),
+                         client_id=token.group(1), client_secret=token.group(2)),
+            encoding="utf-8",
+        )
+        print(f"   다시 씀 -> {path.name}")
+    print("\n토큰은 그대로다. 팀원에게 새 파일을 다시 보내면 된다.")
+    print("(이미 세팅을 마친 사람은 다시 할 필요 없다 — 안내문만 바뀌었다.)")
 
 
 def ask(prompt, default=""):
@@ -91,6 +152,9 @@ def ask(prompt, default=""):
 
 def main():
     print(__doc__)
+    if "--refresh" in sys.argv:
+        refresh()
+        return
     print("먼저 지금 쓰고 있는 TEAM 시크릿을 한 줄로 붙여넣으세요.")
     print("(모르면 취소하고 worker/README.md의 '팀 모드'를 보세요.)\n")
     raw = input("TEAM JSON> ").strip()

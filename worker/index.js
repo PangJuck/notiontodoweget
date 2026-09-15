@@ -551,6 +551,7 @@ const HANDLERS = {
 const MCP_PROTOCOL = "2025-06-18";
 
 const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)으로 관리한다.
+이 도구 모음의 이름은 **Ulick To-do**다. 사람에게 말할 때는 이 이름을 쓴다.
 
 사분면 판단은 앞 숫자로 한다:
 1 지금 당장 (중요+시급)  — 오늘 안 하면 터지는 일
@@ -576,7 +577,9 @@ const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)�
 ## 먼저 권하기
 
 다른 일을 하는 중에도, 이 사람이 **지금 안 하고 나중으로 미룬 일**이 나오면 그 턴
-끝에 한 줄로 묻는다. "할 일에 넣어둘까요? — <동사형 제목>" 정도로 짧게.
+끝에 한 줄로 묻는다. 도구 이름이 아니라 **"Ulick To-do"** 라고 부른다:
+
+  Ulick To-do에 넣어둘까요? — <동사형 제목>
 
 이럴 때만 묻는다:
 - "나중에", "다음에", "일단 넘어가자", "이건 따로" 처럼 **미루겠다고 말한** 경우
@@ -683,6 +686,55 @@ const MCP_TOOLS = [
   },
 ];
 
+/* 하루의 시작과 끝. MCP 프롬프트로 실어 보내면 Claude Code의 / 메뉴에 슬래시
+   명령으로 뜬다 — 팀원이 따로 설치할 것이 없다. */
+const MCP_PROMPTS = [
+  {
+    name: "morning",
+    title: "아침 정리",
+    description: "남은 할 일을 훑고 오늘 끝낼 3개를 고른다. 하루 시작할 때.",
+    arguments: [],
+    text: `지금부터 아침 정리를 한다. 순서대로 한다.
+
+1. list_todos로 남은 할 일을 불러온다.
+2. **마감이 지난 것**이 있으면 맨 먼저 짚는다. 오늘 할지, 날짜를 옮길지, 접을지 묻는다.
+3. **오늘 끝낼 3개**를 고르게 한다. \`1 지금 당장\`에서 먼저 고르고,
+   \`2 핵심 업무\`에서 **최소 하나**는 넣는다. 3개를 넘기지 않는다.
+   정해지면 set_today로 켠다.
+4. 사분면이 없는 항목이 있으면 "미분류 N건, 지금 나눌까요" 하고 묻는다.
+   하겠다고 하면 하나씩 제안하고 set_priority로 넣는다.
+5. \`대기중\`인 것 중 오래된 게 있으면 "이건 다시 찔러볼 때 아닌가요" 하고 짚는다.
+6. 마지막에 **한 줄로 오늘 배치를 제안한다.** 오전에는 머리 쓰는 일(1·2번),
+   오후에는 잡무(3번)를 몰아서.
+
+\`2 핵심 업무\`가 오늘의 3에 하나도 없으면 그냥 넘어가지 말고 한 번 짚는다.
+그날은 잡무로만 끝난다.
+
+길게 늘어놓지 않는다. 짧게 묻고 빠르게 정한다.`,
+  },
+  {
+    name: "evening",
+    title: "퇴근 정리",
+    description: "오늘 한 일을 정리하고 내일로 넘길 것을 추린다. 하루 끝낼 때.",
+    arguments: [],
+    text: `지금부터 퇴근 정리를 한다. 순서대로 한다.
+
+1. list_done으로 오늘 끝낸 것을 확인하고 짧게 읊어준다. 한 줄 칭찬은 해도 좋지만
+   과하게 하지 않는다.
+2. list_todos로 남은 것을 본다. **오늘의 3 중 못 끝낸 것**을 먼저 짚는다.
+   - 오늘 늦게라도 할 것인지, 내일로 넘길 것인지 묻는다
+   - 내일로 넘기면 set_today를 꺼서 고정을 푼다
+3. **오늘 새로 생긴 일**이 있는지 묻는다. 회의에서 받은 것, 누가 부탁한 것,
+   하다가 발견한 것. 있으면 정리해서 add_todo로 넣는다.
+4. 남 회신을 기다리는 게 생겼으면 set_waiting으로 표시한다.
+5. 마지막에 **내일 아침 첫 번째로 할 일 하나**를 짚어준다. 그거 하나만 정해두면
+   내일 아침이 편하다.
+
+오늘 아무것도 못 끝냈어도 나무라지 않는다. 뭐가 막았는지 한 번 묻고,
+그게 할 일로 만들 만한 것이면 넣는다.`,
+  },
+];
+
 function formatItems(data) {
   const { items, quads, today } = data;
   if (!items.length) return "남은 할 일이 없다.";
@@ -777,7 +829,7 @@ async function handleMcp(request, env, who) {
         result: {
           protocolVersion:
             typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : MCP_PROTOCOL,
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, prompts: {} },
           serverInfo: { name: "ulick-todo", version: "1.4.0" },
           instructions: MCP_INSTRUCTIONS,
         },
@@ -786,6 +838,29 @@ async function handleMcp(request, env, who) {
       return rpc(msg.id, { result: {} });
     case "tools/list":
       return rpc(msg.id, { result: { tools: MCP_TOOLS } });
+    case "prompts/list":
+      return rpc(msg.id, {
+        result: {
+          prompts: MCP_PROMPTS.map(({ name, title, description, arguments: args }) => ({
+            name,
+            title,
+            description,
+            arguments: args,
+          })),
+        },
+      });
+    case "prompts/get": {
+      const found = MCP_PROMPTS.find((p) => p.name === msg.params?.name);
+      if (!found) {
+        return rpc(msg.id, { error: { code: -32602, message: `모르는 프롬프트다: ${msg.params?.name}` } });
+      }
+      return rpc(msg.id, {
+        result: {
+          description: found.description,
+          messages: [{ role: "user", content: { type: "text", text: found.text } }],
+        },
+      });
+    }
     case "tools/call": {
       const name = msg.params?.name;
       const args = msg.params?.arguments || {};
