@@ -24,11 +24,20 @@
 
 ```
 ## 반영하려면 (성준 차례)
+- 받기:  cd C:\Users\CONSTATN\Desktop\notiontodoweget
+         git pull origin claude/github-connection-check-bryb2i
 - 웹판:  cd C:\Users\CONSTATN\Desktop\notiontodoweget\worker ; npx.cmd wrangler deploy
 - 위젯:  scripts\build_exe.ps1
 - 스킬:  아래 zip 올리기 → claude.ai 설정 > 스킬 > 옛 것 지우기
 - 컨텍스트: PROJECT_CONTEXT.md 통째로 claude.ai 프로젝트 지식에 다시 붙이기
 ```
+
+**`git pull`을 맨 앞에 빠뜨리지 않는다.** 방금 푸시한 코드는 성준의 컴퓨터에
+없다. 빼먹으면 배포는 성공했다고 나오면서 옛 코드가 그대로 올라간다 —
+실제로 한 번 그랬다. `wrangler deploy` 출력의 `Total Upload:` 숫자가 지난
+배포와 **한 바이트도 안 다르면** 못 받아온 것이다(`No updated asset files to
+upload`도 같은 신호). 화면 좌상단의 `ui/body.html` 버전 표시로도 확인된다 —
+코드를 고쳤으면 그 숫자를 같이 올려서 눈으로 확인할 수 있게 한다.
 
 ### 성준에게 주는 명령은 PowerShell 문법으로 쓴다
 
