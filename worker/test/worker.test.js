@@ -456,5 +456,44 @@ console.log("── 캘린더를 둘로 나눴을 때 (개인 / 회사)");
   globalThis.fetch = prevFetch;
 }
 
+console.log("── 화면을 열 때 같이 맞추기 (시계를 못 믿을 때의 길)");
+{
+  const pem = "-----BEGIN PRIVATE KEY-----\n" +
+    privateKey.export({ type: "pkcs8", format: "der" }).toString("base64").replace(/(.{64})/g, "$1\n") +
+    "\n-----END PRIVATE KEY-----\n";
+  const calEnv = { ...env, CALENDAR: JSON.stringify({
+    provider: "google", client_email: "bot@x.iam.gserviceaccount.com", private_key: pem,
+    calendar_id: "cal123@group.calendar.google.com", owner: "성준" }) };
+
+  let seen = [];
+  const prevFetch = globalThis.fetch;
+  const jsonRes = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u);
+    seen.push({ url: s, method: init.method || "GET" });
+    if (s.includes("oauth2.googleapis.com/token")) return jsonRes({ access_token: "tok", expires_in: 3600 });
+    if (s.includes("googleapis.com/calendar")) return jsonRes({ items: [] });
+    if (s.includes("/query")) return jsonRes({ results: [], has_more: false });
+    return prevFetch(u, init);
+  };
+  // 앞의 시험들이 이미 한 번 맞춰 놓아서, 같은 모듈로는 "10분에 한 번"에
+  // 걸린다. 갓 깨어난 워커를 보려고 모듈을 새로 하나 읽는다.
+  const fresh = (await import("../index.js?fresh")).default;
+  const hit = async () => {
+    seen = [];
+    await fresh.fetch(new Request("https://w.dev/api/data", {
+      method: "POST", headers: { "Cf-Access-Jwt-Assertion": mint("sj@x.com"), "content-type": "application/json" },
+      body: JSON.stringify({ args: [] }),
+    }), calEnv).then(r => r.json());
+    await new Promise(r => setTimeout(r, 60));
+    return seen.some(c => c.url.includes("googleapis.com/calendar"));
+  };
+
+  ok("화면을 열면 캘린더도 같이 맞춘다", await hit());
+  ok("바로 다시 열어도 또 맞추지는 않는다(10분에 한 번)", !(await hit()));
+
+  globalThis.fetch = prevFetch;
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);

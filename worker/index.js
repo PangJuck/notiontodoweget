@@ -531,6 +531,27 @@ async function trash(env, token, pageId) {
   syncTodo(env, "remove", { pageId });
 }
 
+/* 캘린더 맞추기를 요청에 얹어 간다.
+   시계([triggers])만 믿을 수가 없다 — 등록은 되는데 안 깨어나는 것을 봤고,
+   깨어나지 않는 것은 밖에서 알 방법이 없다. 대신 화면을 열 때(=/api/*를
+   부를 때) 10분에 한 번씩 같이 맞춘다. 화면은 하루에도 여러 번 여니까
+   실질적으로 시계와 같은 일을 한다.
+
+   응답을 기다리게 하지 않는다. 맞추는 일은 뒤에서 끝난다. */
+const SYNC_GAP = 10 * 60 * 1000;
+let lastSync = 0;
+
+function maybeSync(env) {
+  if (!env.CALENDAR) return;
+  const now = Date.now();
+  if (now - lastSync < SYNC_GAP) return;
+  lastSync = now;
+  const done = reconcile(env).catch((e) =>
+    console.log(`[calendar] 요청 끝에 맞추기 실패: ${e && e.message}`)
+  );
+  if (typeof env.waitUntil === "function") env.waitUntil(done);
+}
+
 /* 구글 캘린더가 읽어 가는 문.
    **Access 밖이다** — 구글 서버는 로그인을 못 한다. 문을 지키는 것은 주소에
    박힌 난수뿐이라, 여기서는 세 가지를 지킨다:
@@ -1113,6 +1134,7 @@ export default {
         // 빈 본문(인자 없는 호출)도 허용한다
       }
       const result = await handler(env, env.NOTION_TOKEN, who, args);
+      maybeSync(env);
       return Response.json(result);
     }
 
