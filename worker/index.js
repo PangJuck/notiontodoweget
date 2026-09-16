@@ -17,7 +17,7 @@
  * 파일 밖으로 나가지 않는다.
  */
 
-import { syncTodo } from "./connectors/calendar.js";
+import { syncTodo, reconcile } from "./connectors/calendar.js";
 import { buildIcs } from "./feed.js";
 import { PERSONAL_DB, TEAM_DB } from "./dbs.js";
 
@@ -1118,5 +1118,17 @@ export default {
 
     // app.css, app.js, adapter-web.js 같은 정적 파일
     return env.ASSETS.fetch(request);
+  },
+
+  /* 시계가 부르는 문 (wrangler.toml의 [triggers]).
+     화면을 거치지 않고 노션이 바뀌는 길이 있다 — 클로드(MCP)와 위젯은 노션에
+     직접 쓴다. 그때는 위의 syncTodo가 불릴 길이 없으니, 여기서 주기적으로
+     양쪽을 맞춘다. 자세한 것은 connectors/calendar.js의 reconcile. */
+  async scheduled(event, env, ctx) {
+    const done = reconcile(env).catch((e) =>
+      console.log(`[calendar] 주기 동기화 실패: ${e && e.message}`)
+    );
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(done);
+    return done;
   },
 };

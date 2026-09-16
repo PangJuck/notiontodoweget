@@ -299,5 +299,88 @@ console.log("── 구글 캘린더에 실제로 쓰기");
   globalThis.fetch = prevFetch;
 }
 
+console.log("── 주기 동기화 (클로드·위젯으로 넣은 것까지)");
+{
+  const pem = "-----BEGIN PRIVATE KEY-----\n" +
+    privateKey.export({ type: "pkcs8", format: "der" }).toString("base64").replace(/(.{64})/g, "$1\n") +
+    "\n-----END PRIVATE KEY-----\n";
+  const calEnv = { ...env, CALENDAR: JSON.stringify({
+    provider: "google", client_email: "bot@x.iam.gserviceaccount.com",
+    private_key: pem, calendar_id: "cal123@group.calendar.google.com", owner: "성준" }) };
+
+  const row = (id, title, due, owner, extra = {}) => ({
+    id, parent: { database_id: owner ? TEAM_DB : PERSONAL_DB },
+    properties: {
+      "할 일": { title: [{ plain_text: title }] },
+      "마감일": { date: { start: due } },
+      "완료": { checkbox: false },
+      ...(owner ? { "담당자": { select: { name: owner } } } : {}),
+      ...extra,
+    },
+  });
+  // 노션 쪽: 개인 두 건, 팀(성준) 한 건
+  const rowsFor = (db) => db === PERSONAL_DB
+    ? [row("11112222", "치과 예약", "2026-09-25", null,
+           { "메모": { rich_text: [{ plain_text: "보험 서류" }] } }),
+       row("33334444", "이미 맞는 것", "2026-10-01", null)]
+    : [row("55556666", "출고 확인", "2026-09-30", "성준")];
+  // 구글 쪽: 하나는 이미 같고, 하나는 노션에 없고, 하나는 사람이 직접 넣은 것
+  const already = [
+    { id: "todo33334444", summary: "이미 맞는 것", start: { date: "2026-10-01" }, end: { date: "2026-10-02" } },
+    { id: "todo99999999", summary: "노션에서 사라진 것", start: { date: "2026-09-01" }, end: { date: "2026-09-02" } },
+    { id: "meeting1", summary: "사람이 직접 넣은 회의", start: { date: "2026-09-02" }, end: { date: "2026-09-03" } },
+  ];
+
+  let seen = [];
+  let queried = [];
+  const prevFetch = globalThis.fetch;
+  const jsonRes = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u), m = init.method || "GET";
+    seen.push({ url: s, method: m, body: init.body });
+    if (s.includes("oauth2.googleapis.com/token")) return jsonRes({ access_token: "tok", expires_in: 3600 });
+    if (s.includes("googleapis.com/calendar")) {
+      if (m === "GET") return jsonRes({ items: already });
+      return jsonRes({ id: "e" });
+    }
+    if (s.includes("/query")) {
+      const db = s.match(/databases\/([^/]+)\/query/)[1];
+      queried.push({ db, body: JSON.parse(init.body) });
+      return jsonRes({ results: rowsFor(db), has_more: false });
+    }
+    return prevFetch(u, init);
+  };
+
+  await worker.scheduled({}, calEnv, { waitUntil: () => {} });
+  const gcal = seen.filter(c => c.url.includes("googleapis.com/calendar"));
+  const puts = gcal.filter(c => c.method === "PUT").map(c => JSON.parse(c.body));
+  const dels = gcal.filter(c => c.method === "DELETE").map(c => c.url.split("/").pop());
+
+  ok("시계가 깨우면 노션 두 DB를 읽는다", queried.length === 2, queried.map(q => q.db).join(","));
+  ok("팀 DB는 내 것만 묻는다",
+     JSON.stringify(queried.find(q => q.db === TEAM_DB).body).includes('"담당자"'));
+  ok("마감일 없는 줄은 애초에 안 가져온다",
+     JSON.stringify(queried[0].body).includes("is_not_empty"));
+  ok("클로드로 넣은 개인 항목이 캘린더에 올라간다",
+     puts.some(e => e.id === "todo11112222" && e.summary === "치과 예약"), JSON.stringify(puts.map(e=>e.id)));
+  ok("팀 DB의 내 항목도 같이 올라간다", puts.some(e => e.id === "todo55556666"));
+  ok("이미 같은 것은 다시 쓰지 않는다", !puts.some(e => e.id === "todo33334444"));
+  ok("노션에서 사라진 것은 캘린더에서도 지운다", dels.includes("todo99999999"), dels.join(","));
+  ok("사람이 직접 넣은 일정은 건드리지 않는다", !dels.includes("meeting1"), dels.join(","));
+
+  // 두 번 돌려도 결과가 같아야 한다 — 기억이 아니라 대조로 맞추기 때문이다
+  seen = []; queried = [];
+  await worker.scheduled({}, calEnv, { waitUntil: () => {} });
+  const again = seen.filter(c => c.url.includes("googleapis.com/calendar") && c.method === "PUT");
+  ok("두 번 돌려도 하는 일이 같다(두 번 안 생긴다)", again.length === 2, String(again.length));
+
+  // 설정이 없으면 깨어나도 아무 데도 안 나간다
+  seen = [];
+  await worker.scheduled({}, env, { waitUntil: () => {} });
+  ok("CALENDAR 시크릿이 없으면 노션도 구글도 안 부른다", seen.length === 0, String(seen.length));
+
+  globalThis.fetch = prevFetch;
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);

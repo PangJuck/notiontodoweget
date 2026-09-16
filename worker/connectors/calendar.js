@@ -192,8 +192,11 @@ async function accessToken(cfg) {
 /* ── 일정 쓰기 ──────────────────────────
    일정 id를 노션 page_id에서 만들어 낸다. 그래야 같은 할 일을 두 번 넣지 않고,
    마감일을 옮길 때 새로 만들지 않고 고칠 수 있다(= 매핑을 저장할 곳이 필요 없다).
-   구글 id 규칙은 소문자 a–v와 숫자 0–9. page_id는 16진수라 그대로 들어간다. */
-const eventId = (pageId) => `todo${pageId}`;
+   구글 id 규칙은 소문자 a–v와 숫자 0–9. page_id는 16진수라 그대로 들어간다.
+   앞에 붙인 todo는 **우리가 만든 일정이라는 표식**이기도 하다 — 주기 동기화가
+   지울 것을 고를 때 이걸 보고, 사람이 직접 넣은 일정은 건드리지 않는다. */
+const MARK = "todo";
+const eventId = (pageId) => `${MARK}${pageId}`;
 const eventsUrl = (cfg) =>
   `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cfg.calendar_id)}/events`;
 
@@ -201,6 +204,20 @@ function nextDay(iso) {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+function eventBody(id, got) {
+  return {
+    id,
+    summary: got.title,
+    description: [got.memo, got.url].filter(Boolean).join("\n\n"),
+    // 마감일 하루짜리 종일 일정. ics와 같이 끝 날짜는 포함되지 않으므로 다음 날이다.
+    start: { date: got.due },
+    end: { date: nextDay(got.due) },
+    // 할 일 때문에 하루가 "바쁨"으로 잡히면 남이 회의를 못 잡는다
+    transparency: "transparent",
+    source: got.url ? { title: "Ulick To-do", url: got.url } : undefined,
+  };
 }
 
 async function googleCall(cfg, url, method, payload) {
@@ -214,20 +231,7 @@ async function googleCall(cfg, url, method, payload) {
   });
 }
 
-async function upsert(cfg, pageId, got) {
-  const id = eventId(pageId);
-  const body = {
-    id,
-    summary: got.title,
-    description: [got.memo, got.url].filter(Boolean).join("\n\n"),
-    // 마감일 하루짜리 종일 일정. ics와 같이 끝 날짜는 포함되지 않으므로 다음 날이다.
-    start: { date: got.due },
-    end: { date: nextDay(got.due) },
-    // 할 일 때문에 하루가 "바쁨"으로 잡히면 남이 회의를 못 잡는다
-    transparency: "transparent",
-    source: got.url ? { title: "Ulick To-do", url: got.url } : undefined,
-  };
-
+async function putEvent(cfg, id, body) {
   // 있으면 고치고 없으면 만든다. PUT이 먼저인 이유는, 이미 있는 쪽이 훨씬 잦아서다.
   let res = await googleCall(cfg, `${eventsUrl(cfg)}/${id}`, "PUT", body);
   if (res.status === 404) {
@@ -238,9 +242,125 @@ async function upsert(cfg, pageId, got) {
   if (!res.ok) throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
 }
 
-async function remove(cfg, pageId) {
-  const res = await googleCall(cfg, `${eventsUrl(cfg)}/${eventId(pageId)}`, "DELETE");
+async function dropEvent(cfg, id) {
+  const res = await googleCall(cfg, `${eventsUrl(cfg)}/${id}`, "DELETE");
   // 이미 없으면 그게 바라던 상태다
   if (res.ok || res.status === 404 || res.status === 410) return;
   throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
+}
+
+const upsert = (cfg, pageId, got) => putEvent(cfg, eventId(pageId), eventBody(eventId(pageId), got));
+const remove = (cfg, pageId) => dropEvent(cfg, eventId(pageId));
+
+/* ── 주기 동기화 ────────────────────────
+   클로드(MCP)와 위젯은 노션에 **직접** 쓴다. 워커를 지나가지 않으니 그때는
+   위의 syncTodo가 불릴 길이 아예 없다. 그래서 워커가 스스로 몇 분에 한 번
+   양쪽을 맞춘다(일정은 wrangler.toml의 [triggers], 문은 index.js의 scheduled).
+
+   맞추는 방식이 요점이다. **무엇이 바뀌었는지를 기억해 두지 않는다** — 기억은
+   한 번 틀어지면 영영 틀어진 채로 남고, 그 틀어짐은 아무도 모른다. 대신 매번
+   양쪽을 통째로 읽어 같게 만든다. 그래서 어디서 넣었든, 지난번이 실패했든,
+   두 번 돌든 결과가 같다.
+
+   지우는 것은 표식(todo)이 붙은 일정뿐이다. 같은 캘린더에 사람이 직접 넣은
+   일정은 여기서 사라지지 않는다. */
+export async function reconcile(env) {
+  const cfg = getCalendar(env);
+  if (!cfg) return { ok: false, why: "CALENDAR 시크릿이 없다" };
+
+  // 노션 쪽의 "있어야 할 모습"
+  const want = new Map();
+  const take = async (dbId, owner) => {
+    for (const row of await notionRows(env, dbId, owner)) {
+      const got = fromPage(row);
+      if (got.due && !got.done) want.set(eventId(bare(row.id)), got);
+    }
+  };
+  await take(PERSONAL_DB, null);
+  // owner를 안 적으면 팀 항목은 하나도 올리지 않는다(위 wanted와 같은 규칙).
+  if (cfg.owner) await take(TEAM_DB, cfg.owner);
+
+  const have = await listEvents(cfg);
+
+  let pushed = 0;
+  for (const [id, got] of want) {
+    const body = eventBody(id, got);
+    if (unchanged(have.get(id), body)) continue; // 같은 것을 다시 쓰지 않는다
+    await putEvent(cfg, id, body);
+    pushed++;
+  }
+
+  let removed = 0;
+  for (const id of have.keys()) {
+    if (want.has(id)) continue;
+    await dropEvent(cfg, id);
+    removed++;
+  }
+
+  console.log(`[calendar] 동기화: 노션 ${want.size}건, 올림 ${pushed}, 지움 ${removed}`);
+  return { ok: true, notion: want.size, pushed, removed };
+}
+
+function unchanged(ev, body) {
+  if (!ev) return false;
+  return (
+    (ev.summary || "") === (body.summary || "") &&
+    (ev.description || "") === (body.description || "") &&
+    ev.start?.date === body.start.date &&
+    ev.end?.date === body.end.date
+  );
+}
+
+/* 미완료 + 마감일 있는 줄만. 담당자를 주면 그 사람 것만.
+   필터를 노션 쪽에 거는 이유는, 안 올릴 줄을 여기까지 들고 오지 않기 위해서다. */
+async function notionRows(env, dbId, owner) {
+  const filter = [
+    { property: "완료", checkbox: { equals: false } },
+    { property: "마감일", date: { is_not_empty: true } },
+  ];
+  if (owner) filter.push({ property: "담당자", select: { equals: owner } });
+
+  const rows = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const payload = { filter: { and: filter }, page_size: 100 };
+    if (cursor) payload.start_cursor = cursor;
+    const res = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.NOTION_TOKEN}`,
+        "Notion-Version": "2022-06-28",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`노션이 ${res.status}를 돌려줬다`);
+    const json = await res.json();
+    rows.push(...(json.results || []));
+    if (!json.has_more || !json.next_cursor) break;
+    cursor = json.next_cursor;
+  }
+  return rows;
+}
+
+/* 캘린더에 지금 들어 있는 우리 일정. 우리가 만든 것(todo 표식)만 담아 온다. */
+async function listEvents(cfg) {
+  const out = new Map();
+  let token = null;
+  for (let page = 0; page < 10; page++) {
+    const q = new URLSearchParams({
+      maxResults: "2500",
+      showDeleted: "false",
+      singleEvents: "false",
+      fields: "nextPageToken,items(id,summary,description,start,end)",
+    });
+    if (token) q.set("pageToken", token);
+    const res = await googleCall(cfg, `${eventsUrl(cfg)}?${q}`, "GET");
+    if (!res.ok) throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
+    const json = await res.json();
+    for (const ev of json.items || []) if (String(ev.id || "").startsWith(MARK)) out.set(ev.id, ev);
+    if (!json.nextPageToken) break;
+    token = json.nextPageToken;
+  }
+  return out;
 }

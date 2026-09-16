@@ -18,3 +18,9 @@ ACCESS_DOMAIN = "ulicktodo.cloudflareaccess.com"
 # 토큰의 발급자는 옛 이름 그대로다. 서명 키는 위 도메인에서 받는 것이 맞다.
 ACCESS_ISSUERS = "mute-frost-a2db.cloudflareaccess.com"
 ACCESS_AUD = "f8e6f5fce9f92d9dc7097ede31986db9b36ad91dfcbbf09d8bc125b098087b8a"
+
+# 시계. 클로드(MCP)와 위젯은 노션에 직접 쓰고 이 워커를 지나가지 않는다.
+# 그래서 10분에 한 번 스스로 노션과 구글 캘린더를 맞춘다(index.js의 scheduled).
+# CALENDAR 시크릿이 없으면 깨어나자마자 아무 일 없이 끝난다.
+[triggers]
+crons = ["*/10 * * * *"]
