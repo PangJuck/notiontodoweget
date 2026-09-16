@@ -382,5 +382,79 @@ console.log("── 주기 동기화 (클로드·위젯으로 넣은 것까지)"
   globalThis.fetch = prevFetch;
 }
 
+console.log("── 캘린더를 둘로 나눴을 때 (개인 / 회사)");
+{
+  const pem = "-----BEGIN PRIVATE KEY-----\n" +
+    privateKey.export({ type: "pkcs8", format: "der" }).toString("base64").replace(/(.{64})/g, "$1\n") +
+    "\n-----END PRIVATE KEY-----\n";
+  const TEAM_CAL = "work@group.calendar.google.com";
+  const MINE_CAL = "mine@group.calendar.google.com";
+  const calEnv = { ...env, CALENDAR: JSON.stringify({
+    provider: "google", client_email: "bot@x.iam.gserviceaccount.com", private_key: pem,
+    calendar_id: TEAM_CAL, personal_calendar_id: MINE_CAL, owner: "성준" }) };
+
+  const row = (id, title, due, owner) => ({
+    id, parent: { database_id: owner ? TEAM_DB : PERSONAL_DB },
+    properties: {
+      "할 일": { title: [{ plain_text: title }] },
+      "마감일": { date: { start: due } },
+      "완료": { checkbox: false },
+      ...(owner ? { "담당자": { select: { name: owner } } } : {}),
+    },
+  });
+  const rowsFor = (db) => db === PERSONAL_DB
+    ? [row("aaaa1111", "치과 예약", "2026-09-25", null)]
+    : [row("bbbb2222", "출고 확인", "2026-09-30", "성준")];
+  // 개인 캘린더에 회사 것이 잘못 들어가 있다. 대조하면 치워져야 한다.
+  const stale = { id: "todocccc3333", summary: "옛날 것",
+    start: { date: "2026-09-01" }, end: { date: "2026-09-02" } };
+
+  let seen = [];
+  const prevFetch = globalThis.fetch;
+  const jsonRes = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u), m = init.method || "GET";
+    seen.push({ url: s, method: m, body: init.body });
+    if (s.includes("oauth2.googleapis.com/token")) return jsonRes({ access_token: "tok", expires_in: 3600 });
+    if (s.includes("googleapis.com/calendar")) {
+      if (m === "GET") return jsonRes({ items: s.includes(encodeURIComponent(MINE_CAL)) ? [stale] : [] });
+      return jsonRes({ id: "e" });
+    }
+    if (s.includes("/query")) {
+      const db = s.match(/databases\/([^/]+)\/query/)[1];
+      return jsonRes({ results: rowsFor(db), has_more: false });
+    }
+    return prevFetch(u, init);
+  };
+
+  await worker.scheduled({}, calEnv, { waitUntil: () => {} });
+  const onCal = (cal, method) => seen.filter(c =>
+    c.url.includes(encodeURIComponent(cal)) && c.method === method);
+
+  const mine = onCal(MINE_CAL, "PUT").map(c => JSON.parse(c.body));
+  const work = onCal(TEAM_CAL, "PUT").map(c => JSON.parse(c.body));
+  ok("개인 할 일은 개인 캘린더로 간다", mine.length === 1 && mine[0].summary === "치과 예약",
+     JSON.stringify(mine.map(e => e.summary)));
+  ok("회사 할 일은 회사 캘린더로 간다", work.length === 1 && work[0].summary === "출고 확인",
+     JSON.stringify(work.map(e => e.summary)));
+  ok("개인 캘린더에 회사 것이 섞이지 않는다", !mine.some(e => e.summary === "출고 확인"));
+  ok("두 캘린더를 다 훑는다",
+     onCal(MINE_CAL, "GET").length === 1 && onCal(TEAM_CAL, "GET").length === 1);
+  ok("엉뚱하게 남아 있던 일정은 그 캘린더에서 지운다",
+     onCal(MINE_CAL, "DELETE").some(c => c.url.endsWith("todocccc3333")));
+
+  // 완료하면 어느 캘린더에 있었는지 모르므로 둘 다 훑어야 한다
+  seen = [];
+  await worker.fetch(new Request("https://w.dev/api/done", {
+    method: "POST", headers: { "Cf-Access-Jwt-Assertion": mint("sj@x.com"), "content-type": "application/json" },
+    body: JSON.stringify({ args: ["todo-gone"] }),
+  }), calEnv).then(r => r.json());
+  await new Promise(r => setTimeout(r, 80));
+  ok("완료하면 두 캘린더 모두에서 지운다",
+     onCal(MINE_CAL, "DELETE").length === 1 && onCal(TEAM_CAL, "DELETE").length === 1);
+
+  globalThis.fetch = prevFetch;
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);

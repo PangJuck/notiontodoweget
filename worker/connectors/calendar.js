@@ -15,7 +15,11 @@
  *    "client_email":"...@....iam.gserviceaccount.com",
  *    "private_key":"-----BEGIN PRIVATE KEY-----\n...",
  *    "calendar_id":"....@group.calendar.google.com",
+ *    "personal_calendar_id":"....@group.calendar.google.com",  // 없으면 위와 한 곳
  *    "owner":"성준"}            // 있으면 팀 DB의 그 사람 항목도 같이 올린다
+ *
+ * 캘린더를 둘로 나누면 구글에서 개인 쪽만 체크를 꺼 둘 수 있다. 화면을 남에게
+ * 보여줄 때 개인 할 일이 같이 뜨지 않는다 — 나누는 이유는 그것 하나다.
  *
  * 없으면 아무 일도 하지 않는다. 자세한 것은 docs/구글-캘린더-연동-계획.md.
  *
@@ -24,7 +28,7 @@
  *    그래서 index.js는 syncTodo를 await 하지 않고, 이 파일이 스스로 삼킨다.
  *    캘린더가 안 맞는 것은 불편이고, 할 일이 안 들어가는 것은 고장이다.
  * 2. **나가는 것은 성준 것뿐이다.** 팀원 항목이 성준 캘린더로 새면 안 된다 —
- *    올릴지 말지는 아래 wanted()가 노션에 직접 물어 정한다.
+ *    올릴지 말지, 어느 캘린더로 갈지는 아래 target()이 노션에 직접 물어 정한다.
  */
 
 import { PERSONAL_DB, TEAM_DB } from "../dbs.js";
@@ -81,9 +85,10 @@ async function run(env, cfg, kind, item) {
   // 물어야 하니(남의 항목이면 안 올린다), 한 번에 페이지를 읽어 채운다.
   const page = await notionPage(env, item.pageId);
   const got = fromPage(page);
+  const calId = target(cfg, got);
   // 안 올리기로 한 경우가 제일 안 보인다. 실패가 아니라 판단이라 에러도 안 나고,
   // 밖에서 보면 그냥 아무 일도 안 일어난 것처럼 보인다. 그래서 이유를 적는다.
-  if (!wanted(cfg, got)) {
+  if (!calId) {
     console.log(`[calendar] 안 올림 — 내 것이 아니다 (담당자 "${got.owner}", 설정 owner "${cfg.owner}")`);
     return remove(cfg, pageId); // 남의 것이 되었으면 치운다
   }
@@ -92,16 +97,26 @@ async function run(env, cfg, kind, item) {
     return remove(cfg, pageId);
   }
   console.log(`[calendar] 올림 — ${got.title} (${got.due})`);
-  return upsert(cfg, pageId, got);
+  // 캘린더가 바뀌었을 때(개인 → 팀 등) 옛 캘린더에 남은 것은 여기서 치우지
+  // 않는다. 지울 일이 거의 없는데 매번 호출을 하나 더 쓰게 된다 —
+  // 아래 reconcile이 다음 차례에 대조해서 치운다.
+  const id = eventId(pageId);
+  return putEvent(cfg, calId, id, eventBody(id, got));
 }
 
-/* 올릴 것인가. 개인 DB는 전부, 팀 DB는 시크릿에 적힌 사람 것만.
-   owner를 안 적으면 팀 항목은 하나도 안 올라간다. */
-function wanted(cfg, got) {
-  if (got.parent === bare(PERSONAL_DB)) return true;
-  if (got.parent === bare(TEAM_DB)) return !!cfg.owner && got.owner === cfg.owner;
-  return false;
+/* 어느 캘린더로 갈 것인가. 안 올릴 것이면 null이다.
+   개인 DB는 전부, 팀 DB는 시크릿에 적힌 사람 것만 — owner를 안 적으면
+   팀 항목은 하나도 안 올라간다. */
+function target(cfg, got) {
+  if (got.parent === bare(PERSONAL_DB)) return cfg.personal_calendar_id || cfg.calendar_id;
+  if (got.parent === bare(TEAM_DB)) {
+    return cfg.owner && got.owner === cfg.owner ? cfg.calendar_id : null;
+  }
+  return null;
 }
+
+/* 우리가 쓰는 캘린더 전부. 하나로 합쳐 쓸 수도 있어 중복을 지운다. */
+const calendars = (cfg) => [...new Set([cfg.calendar_id, cfg.personal_calendar_id].filter(Boolean))];
 
 /* ── 노션에서 한 줄 읽기 ────────────────── */
 async function notionPage(env, pageId) {
@@ -210,8 +225,8 @@ async function accessToken(cfg) {
    지울 것을 고를 때 이걸 보고, 사람이 직접 넣은 일정은 건드리지 않는다. */
 const MARK = "todo";
 const eventId = (pageId) => `${MARK}${pageId}`;
-const eventsUrl = (cfg) =>
-  `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cfg.calendar_id)}/events`;
+const eventsUrl = (calId) =>
+  `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`;
 
 function nextDay(iso) {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -244,26 +259,28 @@ async function googleCall(cfg, url, method, payload) {
   });
 }
 
-async function putEvent(cfg, id, body) {
+async function putEvent(cfg, calId, id, body) {
   // 있으면 고치고 없으면 만든다. PUT이 먼저인 이유는, 이미 있는 쪽이 훨씬 잦아서다.
-  let res = await googleCall(cfg, `${eventsUrl(cfg)}/${id}`, "PUT", body);
+  let res = await googleCall(cfg, `${eventsUrl(calId)}/${id}`, "PUT", body);
   if (res.status === 404) {
-    res = await googleCall(cfg, eventsUrl(cfg), "POST", body);
+    res = await googleCall(cfg, eventsUrl(calId), "POST", body);
     // 지웠다 되살리는 경우 구글이 id가 이미 있다고 한다. 그럼 다시 고치기로 간다.
-    if (res.status === 409) res = await googleCall(cfg, `${eventsUrl(cfg)}/${id}`, "PUT", body);
+    if (res.status === 409) res = await googleCall(cfg, `${eventsUrl(calId)}/${id}`, "PUT", body);
   }
   if (!res.ok) throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
 }
 
-async function dropEvent(cfg, id) {
-  const res = await googleCall(cfg, `${eventsUrl(cfg)}/${id}`, "DELETE");
+async function dropEvent(cfg, calId, id) {
+  const res = await googleCall(cfg, `${eventsUrl(calId)}/${id}`, "DELETE");
   // 이미 없으면 그게 바라던 상태다
   if (res.ok || res.status === 404 || res.status === 410) return;
   throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
 }
 
-const upsert = (cfg, pageId, got) => putEvent(cfg, eventId(pageId), eventBody(eventId(pageId), got));
-const remove = (cfg, pageId) => dropEvent(cfg, eventId(pageId));
+/* 어느 캘린더에 들어가 있었는지 모를 때가 있다(완료·삭제는 노션을 읽지
+   않는다). 그래서 지울 때는 쓰는 캘린더를 다 훑는다. 없으면 없는 대로 끝난다. */
+const remove = (cfg, pageId) =>
+  Promise.all(calendars(cfg).map((c) => dropEvent(cfg, c, eventId(pageId))));
 
 /* ── 주기 동기화 ────────────────────────
    클로드(MCP)와 위젯은 노션에 **직접** 쓴다. 워커를 지나가지 않으니 그때는
@@ -283,39 +300,45 @@ export async function reconcile(env) {
 
   // owner는 비밀이 아니고, 여기가 어긋나면 팀 항목이 한 건도 안 올라간다.
   // 인코딩이 깨져 들어온 적이 있어서 매번 그대로 찍는다.
-  console.log(`[calendar] 동기화 시작 · 캘린더 ${cfg.calendar_id} · owner "${cfg.owner || "(없음)"}"`);
+  console.log(`[calendar] 동기화 시작 · 캘린더 ${calendars(cfg).join(", ")} · owner "${cfg.owner || "(없음)"}"`);
 
-  // 노션 쪽의 "있어야 할 모습"
-  const want = new Map();
+  // 캘린더마다 "있어야 할 모습"을 따로 만든다. 개인과 팀을 다른 캘린더로
+  // 나눠 놓으면, 구글에서 개인 쪽만 체크를 꺼 둘 수 있다.
+  const want = new Map(calendars(cfg).map((c) => [c, new Map()]));
   const take = async (dbId, owner) => {
     for (const row of await notionRows(env, dbId, owner)) {
       const got = fromPage(row);
-      if (got.due && !got.done) want.set(eventId(bare(row.id)), got);
+      const calId = target(cfg, got);
+      if (!calId || !got.due || got.done) continue;
+      want.get(calId).set(eventId(bare(row.id)), got);
     }
   };
   await take(PERSONAL_DB, null);
-  // owner를 안 적으면 팀 항목은 하나도 올리지 않는다(위 wanted와 같은 규칙).
+  // owner를 안 적으면 팀 항목은 하나도 올리지 않는다(위 target과 같은 규칙).
   if (cfg.owner) await take(TEAM_DB, cfg.owner);
 
-  const have = await listEvents(cfg);
-
+  let notion = 0;
   let pushed = 0;
-  for (const [id, got] of want) {
-    const body = eventBody(id, got);
-    if (unchanged(have.get(id), body)) continue; // 같은 것을 다시 쓰지 않는다
-    await putEvent(cfg, id, body);
-    pushed++;
-  }
-
   let removed = 0;
-  for (const id of have.keys()) {
-    if (want.has(id)) continue;
-    await dropEvent(cfg, id);
-    removed++;
+  for (const [calId, mine] of want) {
+    const have = await listEvents(cfg, calId);
+    for (const [id, got] of mine) {
+      const body = eventBody(id, got);
+      if (unchanged(have.get(id), body)) continue; // 같은 것을 다시 쓰지 않는다
+      await putEvent(cfg, calId, id, body);
+      pushed++;
+    }
+    // 캘린더를 나눈 뒤에는 이 자리가 "옛 캘린더에 남은 것"도 같이 치운다.
+    for (const id of have.keys()) {
+      if (mine.has(id)) continue;
+      await dropEvent(cfg, calId, id);
+      removed++;
+    }
+    notion += mine.size;
   }
 
-  console.log(`[calendar] 동기화: 노션 ${want.size}건, 올림 ${pushed}, 지움 ${removed}`);
-  return { ok: true, notion: want.size, pushed, removed };
+  console.log(`[calendar] 동기화: 노션 ${notion}건, 올림 ${pushed}, 지움 ${removed}`);
+  return { ok: true, notion, pushed, removed };
 }
 
 function unchanged(ev, body) {
@@ -361,7 +384,7 @@ async function notionRows(env, dbId, owner) {
 }
 
 /* 캘린더에 지금 들어 있는 우리 일정. 우리가 만든 것(todo 표식)만 담아 온다. */
-async function listEvents(cfg) {
+async function listEvents(cfg, calId) {
   const out = new Map();
   let token = null;
   for (let page = 0; page < 10; page++) {
@@ -372,7 +395,7 @@ async function listEvents(cfg) {
       fields: "nextPageToken,items(id,summary,description,start,end)",
     });
     if (token) q.set("pageToken", token);
-    const res = await googleCall(cfg, `${eventsUrl(cfg)}?${q}`, "GET");
+    const res = await googleCall(cfg, `${eventsUrl(calId)}?${q}`, "GET");
     if (!res.ok) throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
     const json = await res.json();
     for (const ev of json.items || []) if (String(ev.id || "").startsWith(MARK)) out.set(ev.id, ev);
