@@ -173,8 +173,9 @@ async function pullLog(){
 }
 
 /* ── 그리기 ───────────────────────────── */
-let editingMemo = null; // 지금 메모를 고치고 있는 항목 id
-let editingDue = null;  // 지금 마감일을 고치고 있는 항목 id
+let editingMemo = null;  // 지금 메모를 고치고 있는 항목 id
+let editingDue = null;   // 지금 마감일을 고치고 있는 항목 id
+let editingTitle = null; // 지금 제목을 고치고 있는 항목 id
 
 function tools(it){
   const pri = Q.map(q =>
@@ -202,6 +203,21 @@ function memoEditor(it){
   </div>`;
 }
 
+/* 제목 고치기. 잘못 적었거나 동사형으로 다시 쓰고 싶을 때 쓴다 —
+   지우고 새로 넣으면 마감일·사분면·메모를 다시 채워야 하고, 캘린더 일정도
+   새로 생긴다(일정 id가 page_id에서 나오므로). 그래서 자리에서 고친다. */
+function titleEditor(it){
+  return `<div class="memo-edit title-edit">
+    <input type="text" data-title-id="${esc(it.id)}" value="${esc(it.title || "")}"
+      placeholder="할 일 (동사형으로, 기한까지)" autocomplete="off"
+      onkeydown="titleKey(event,'${it.id}')">
+    <div class="memo-edit-btns">
+      <button type="button" onclick="saveTitle('${it.id}')">저장</button>
+      <button type="button" onclick="cancelTitle()">취소</button>
+    </div>
+  </div>`;
+}
+
 /* 자주 쓰는 날은 세는 것보다 누르는 게 빠르다. 오늘을 기준으로 뽑는다. */
 function quickDues(){
   const t = dayOf(TODAY || isoDay(new Date()));
@@ -215,16 +231,14 @@ function quickDues(){
 }
 
 function dueEditor(it){
-  // 칸을 누르면 달력이 열린다. 안 그러면 날짜를 손으로 쳐야 하는데, 형식이
-  // 틀리면 거부당하고 형식 자체를 외워야 한다. 달력 아이콘은 너무 작다.
+  // 칸을 누르면 달력이 열린다(아래 openPicker). 안 그러면 날짜를 손으로 쳐야
+  // 하는데, 형식이 틀리면 거부당하고 형식 자체를 외워야 한다.
   const quick = quickDues().map(([label, day]) =>
     `<button type="button" class="chip${it.due === day ? " on" : ""}"
        onclick="setDueTo('${it.id}','${day}')">${label}</button>`).join("");
   return `<div class="memo-edit due-edit">
     <div class="duequick">${quick}</div>
     <input type="date" data-due-id="${esc(it.id)}" value="${esc(it.due || "")}"
-      onclick="this.showPicker && this.showPicker()"
-      onfocus="this.showPicker && this.showPicker()"
       onchange="saveDue('${it.id}')">
     <div class="memo-edit-btns">
       <button type="button" onclick="saveDue('${it.id}')">저장</button>
@@ -245,12 +259,19 @@ function row(it, compact, pinned, rank){
   // 편집창을 양쪽 다 띄우면 data-id가 겹쳐 저장이 엉뚱한 쪽에서 읽힌다.
   // 고정칸 쪽은 편집창을 띄우지 않는다 — 칸 쪽에서 열린다.
   const edit = pinned ? ""
+    : editingTitle === it.id ? titleEditor(it)
     : editingMemo === it.id ? memoEditor(it)
     : editingDue === it.id ? dueEditor(it) : "";
+  // 제목을 눌러서 고친다. 고정칸(pinned)은 편집창을 띄우지 않으므로 그냥 글자다.
+  const hit = !pinned && can("settitle");
+  const title = hit
+    ? `<button type="button" class="tx" title="눌러서 제목 고치기"
+        onclick="toggleTitle('${it.id}')">${esc(it.title)}</button>`
+    : esc(it.title);
   return `<li class="item${it.wait?" waiting":""}${edit?" editing":""}" data-id="${esc(it.id)}">
     ${num}
     <button class="chk" title="완료" onclick="complete('${it.id}')"></button>
-    <span class="t" title="${esc(it.title)}">${wait}${tag}${esc(it.title)}${dt}${memo}</span>
+    <span class="t" title="${esc(it.title)}">${wait}${tag}${title}${dt}${memo}</span>
     ${tools(it)}
     ${edit}
   </li>`;
@@ -871,6 +892,7 @@ window.moveDue = moveDue;
 window.toggleDue = (id) => {
   editingDue = editingDue === id ? null : id;
   editingMemo = null;
+  editingTitle = null;
   render();
   if (editingDue){
     requestAnimationFrame(() => {
@@ -895,8 +917,42 @@ window.saveDue = (id, clear) => {
 
 window.expand = (n) => { expanded.has(n) ? expanded.delete(n) : expanded.add(n); render(); };
 
+window.toggleTitle = (id) => {
+  editingTitle = editingTitle === id ? null : id;
+  editingMemo = null;
+  editingDue = null;
+  render();
+  if (editingTitle){
+    requestAnimationFrame(() => {
+      const inp = body.querySelector(`.title-edit input[data-title-id="${CSS.escape(id)}"]`);
+      if (inp){ inp.focus(); inp.selectionStart = inp.selectionEnd = inp.value.length; }
+    });
+  }
+};
+window.cancelTitle = () => { editingTitle = null; render(); };
+// 한 줄짜리라 엔터로 저장하는 게 자연스럽다. 메모(여러 줄)와 다른 점이다.
+window.titleKey = (e, id) => {
+  if (e.key === "Enter"){ e.preventDefault(); saveTitle(id); }
+  else if (e.key === "Escape"){ e.preventDefault(); window.cancelTitle(); }
+};
+function saveTitle(id){
+  const inp = body.querySelector(`.title-edit input[data-title-id="${CSS.escape(id)}"]`);
+  const text = inp ? inp.value.trim() : "";
+  const it = find(id);
+  if (!it) return;
+  // 빈 제목은 노션이 거부한다. 지우려는 것이면 삭제(×)가 맞다.
+  if (!text){ toast("할 일을 적어주세요", "지우려면 × 를 누릅니다.", true); return; }
+  if (text === it.title){ editingTitle = null; render(); return; }
+  it.title = text;
+  editingTitle = null;
+  render();
+  send("settitle", id, text).then(schedulePull);
+}
+window.saveTitle = saveTitle;
+
 window.toggleMemo = (id) => {
   editingMemo = editingMemo === id ? null : id;
+  editingTitle = null;
   render();
   if (editingMemo){
     requestAnimationFrame(() => {
@@ -1018,7 +1074,28 @@ document.addEventListener("keydown", (e) => {
   if (!el("#addform").hidden) openAdd(false);
   if (editingMemo) cancelMemo();
   if (editingDue) cancelDue();
+  // 제목 편집창 안에서는 input이 먼저 받아 처리한다(titleKey). 여기는 그 밖에서
+  // 눌렀을 때를 받는다.
+  if (editingTitle) window.cancelTitle();
 });
+
+/* ── 날짜 칸은 전부 달력으로 ────────────────
+   날짜를 손으로 치게 두면 형식(YYYY-MM-DD)을 외워야 하고, 틀리면 조용히
+   거부당한다. 브라우저가 기본으로 주는 달력 아이콘은 칸 오른쪽 끝의 작은
+   점이라 찾기도 누르기도 어렵다 — 칸 아무 데나 눌러도 달력이 열리게 한다.
+
+   낱개로 붙이지 않고 문서 하나에 모아 둔다. 그래야 날짜 칸이 새로 생길 때
+   따로 붙이는 것을 잊어도 똑같이 열린다(추가 폼의 마감일, 항목의 마감일 편집,
+   앞으로 생길 무엇이든). */
+function openPicker(e){
+  const inp = e.target.closest && e.target.closest('input[type="date"]');
+  if (!inp || inp.disabled || inp.readOnly || !inp.showPicker) return;
+  // 사람이 누른 것이 아니면 브라우저가 막는다(NotAllowedError). 이미 열려 있을
+  // 때도 거부할 수 있다. 둘 다 달력이 안 열릴 뿐이라 삼킨다.
+  try { inp.showPicker(); } catch (_) {}
+}
+document.addEventListener("click", openPicker);
+document.addEventListener("focusin", openPicker);
 
 /* ── 탭 / 필터 ────────────────────────── */
 document.querySelectorAll('[role="tab"]').forEach(b =>

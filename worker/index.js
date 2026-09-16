@@ -500,6 +500,16 @@ async function setDue(env, token, pageId, due) {
   syncTodo(env, d ? "upsert" : "remove", { pageId, due: d });
 }
 
+/* 제목 고치기. 넣을 때 쓰는 것과 같은 형식으로 쓴다.
+   캘린더에 올라가 있는 일이면 일정 제목도 같이 바뀌어야 하니 upsert를 부른다.
+   마감일이 없어 안 올라간 일이면 syncTodo가 알아서 아무 일도 안 한다. */
+async function setTitle(env, token, pageId, title) {
+  const t = (title || "").trim();
+  if (!t) throw badInput("할 일을 적어주세요", "빈 제목으로는 바꿀 수 없습니다.");
+  await patch(token, pageId, { "할 일": { title: [{ text: { content: t.slice(0, 2000) } }] } });
+  syncTodo(env, "upsert", { pageId });
+}
+
 async function setMemo(token, pageId, text) {
   text = (text || "").trim();
   const rich = text ? [{ text: { content: text.slice(0, 2000) } }] : [];
@@ -664,6 +674,8 @@ const HANDLERS = {
     }),
   star: (env, token, who, [pageId, on]) => owned(token, who, pageId, () => setTodayFlag(token, pageId, !!on)),
   waiting: (env, token, who, [pageId, on]) => owned(token, who, pageId, () => setWaiting(token, pageId, !!on)),
+  settitle: (env, token, who, [pageId, title]) =>
+    owned(token, who, pageId, () => setTitle(env, token, pageId, title)),
   setmemo: (env, token, who, [pageId, text]) => owned(token, who, pageId, () => setMemo(token, pageId, text)),
   setdue: (env, token, who, [pageId, due]) => owned(token, who, pageId, () => setDue(env, token, pageId, due)),
   add: async (env, token, who, [title, tag, due, quadrant]) => {
@@ -788,6 +800,15 @@ const MCP_TOOLS = [
       type: "object",
       properties: { id: { type: "string" }, quadrant: { type: "integer", minimum: 1, maximum: 4 } },
       required: ["id", "quadrant"],
+    },
+  },
+  {
+    name: "set_title",
+    description: "이미 넣은 할 일의 제목을 고친다. 동사형으로, 무엇을 끝내면 되는지 알 수 있게 쓴다.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, title: { type: "string" } },
+      required: ["id", "title"],
     },
   },
   {
@@ -982,6 +1003,7 @@ async function runTool(env, who, name, args) {
     case "complete_todo":   return unwrap(await call("done", [id]), "완료 처리했다.");
     case "uncomplete_todo": return unwrap(await call("undo", [id]), "완료를 되돌렸다.");
     case "set_priority":    return unwrap(await call("setpri", [id, args.quadrant, args.source]), `${args.quadrant}번으로 옮겼다.`);
+    case "set_title":       return unwrap(await call("settitle", [id, args.title]), `제목을 고쳤다: ${args.title}`);
     case "set_memo":        return unwrap(await call("setmemo", [id, args.memo]), "메모를 저장했다.");
     case "set_due":         return unwrap(await call("setdue", [id, args.due]), args.due ? `마감일을 ${args.due}로 옮겼다.` : "마감일을 지웠다.");
     case "set_today":       return unwrap(await call("star", [id, args.on]), args.on ? "오늘의 3에 고정했다." : "고정을 풀었다.");

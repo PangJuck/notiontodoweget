@@ -3,7 +3,7 @@
    호출은 될 때까지 기다렸다가 나간다. */
 (function(){
   const METHODS = [
-    "data", "log", "done", "undo", "setpri", "star", "waiting", "setmemo",
+    "data", "log", "done", "undo", "setpri", "star", "waiting", "settitle", "setmemo",
     "add", "remove", "resize", "ontop", "minimize", "quit", "openlink",
   ];
 

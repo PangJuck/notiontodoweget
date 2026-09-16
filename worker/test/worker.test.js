@@ -103,6 +103,24 @@ console.log("── 팀원(가영)");
   const { out } = await api("ga@x.com", "setdue", ["p-mine", "2026/10/01"]);
   ok("형식이 틀린 날짜는 노션까지 안 간다", out.ok === false && out.error === "날짜를 알아보지 못했다", out.error);
 }
+{
+  // 제목 고치기도 같은 소유 확인을 지나야 한다. 이게 새면 팀원이 남의 할 일을
+  // 딴 것으로 바꿔 놓을 수 있다 — 삭제만큼 되돌리기 어렵다.
+  const { out, calls } = await api("ga@x.com", "settitle", ["p-mine", "  견적서 3곳 비교표 1장 만들기  "]);
+  const patch = calls.find(c => c.method === "PATCH");
+  ok("내 항목의 제목은 바뀐다",
+     out.ok === true && patch.body.properties["할 일"].title[0].text.content === "견적서 3곳 비교표 1장 만들기");
+}
+{
+  const { out, calls } = await api("ga@x.com", "settitle", ["p-other", "남의 것을 고쳐본다"]);
+  ok("남의 제목은 거부된다", out.ok === false && out.error === "내 항목이 아니다");
+  ok("거부되면 노션에 쓰지 않는다", !calls.some(c => c.method === "PATCH"));
+}
+{
+  const { out, calls } = await api("ga@x.com", "settitle", ["p-mine", "   "]);
+  ok("빈 제목은 노션까지 안 간다",
+     out.ok === false && out.error === "할 일을 적어주세요" && !calls.some(c => c.method === "PATCH"), out.error);
+}
 console.log("── 관리자(성준)");
 {
   const { calls } = await api("sj@x.com", "data");
