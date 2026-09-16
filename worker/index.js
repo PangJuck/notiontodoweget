@@ -254,15 +254,27 @@ function splitOption(name, num) {
   return [rest || label, axis];
 }
 
+/* 날짜는 전부 한국 시간 기준이다.
+   워커는 UTC로 돈다. 그래서 그냥 toISOString()을 쓰면 **00:00~09:00 KST에
+   완료 처리한 것이 전날로 기록됐다** — 새벽에 일하면 매번 틀리고, 기록 탭의
+   날짜 묶음도 하루씩 어긋난다. 위젯(scripts/todo_widget.py)도 같은 기준으로
+   맞춰 뒀다. 두 얼굴이 같은 DB에 쓰므로 한쪽만 고치면 더 헷갈린다.
+
+   고정값으로 둔다. 한국은 서머타임이 없어서 +09:00이 늘 맞고, 쓰는 사람도
+   한국에 있다. 설정으로 뺄 이유가 없다. */
+const KST = 9 * 60 * 60 * 1000;
+
+const kstDay = (ms) => new Date(ms + KST).toISOString().slice(0, 10);
+
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return kstDay(Date.now());
 }
 
 /* 오늘부터 며칠 전. days가 0이면 빈 문자열 — 자르지 않는다는 뜻이다. */
 function sinceISO(days) {
   const n = Number(days);
   if (!Number.isFinite(n) || n <= 0) return "";
-  return new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
+  return kstDay(Date.now() - (n - 1) * 86400000);
 }
 
 async function notionCall(token, url, payload, method) {

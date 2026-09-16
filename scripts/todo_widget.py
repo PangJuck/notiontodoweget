@@ -35,7 +35,7 @@ import threading
 import urllib.error
 import urllib.request
 import webbrowser
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import webview
@@ -169,6 +169,17 @@ LOG_MAX_PAGES = 12  # 한 DB에서 넘길 페이지 한도. 100줄씩이니 1200
 # 노션에 실제로 들어 있는 옵션 이름. {db_id: {1: "1 지금 당장 (중요+시급)", ...}}
 # 위젯이 값을 쓸 때는 이 이름을 그대로 써야 새 옵션이 생기지 않는다.
 option_names = {}
+
+
+# 날짜는 전부 한국 시간 기준이다. 컴퓨터 시간대를 그대로 따르면 성준의
+# Windows에서는 맞지만, 워커(worker/index.js)는 UTC로 돌아서 00:00~09:00 KST에
+# 완료한 것을 전날로 기록했다. 두 얼굴이 같은 DB에 쓰니 기준을 똑같이 못 박는다.
+# 한국은 서머타임이 없어 +09:00이 늘 맞다.
+KST = timezone(timedelta(hours=9))
+
+
+def today_kst():
+    return datetime.now(KST).date()
 
 
 def quadrant_num(name):
@@ -314,7 +325,7 @@ def complete(page_id):
         page_id,
         {
             "완료": {"checkbox": True},
-            "완료일": {"date": {"start": date.today().isoformat()}},
+            "완료일": {"date": {"start": today_kst().isoformat()}},
             "오늘의 3": {"checkbox": False},
         },
     )
@@ -431,7 +442,7 @@ def load_done(days=LOG_DAYS):
         days = int(days)
     except (TypeError, ValueError):
         days = LOG_DAYS
-    cutoff = (date.today() - timedelta(days=days - 1)).isoformat() if days > 0 else ""
+    cutoff = (today_kst() - timedelta(days=days - 1)).isoformat() if days > 0 else ""
     rows = []
     for tag, db_id in SOURCES:
         for r in fetch_done_rows(db_id, cutoff):
@@ -445,7 +456,7 @@ def load_done(days=LOG_DAYS):
 def snapshot():
     items = load_items()
     return {
-        "today": date.today().isoformat(),
+        "today": today_kst().isoformat(),
         "quads": quad_defs(),
         "sources": [tag for tag, _ in SOURCES],
         "items": items,

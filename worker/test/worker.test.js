@@ -550,5 +550,55 @@ console.log("── 밖에서 두드려 깨우는 문 (/sync)");
   globalThis.fetch = prevFetch;
 }
 
+console.log("── 날짜는 한국 시간 기준 (새벽에 완료해도 오늘이어야 한다)");
+{
+  // 2026-09-16 01:30 KST = 2026-09-15 16:30 UTC.
+  // UTC로 계산하면 완료일이 9/15로 찍힌다 — 새벽에 일한 것이 전날 기록이 된다.
+  const dawnKst = Date.UTC(2026, 8, 15, 16, 30);
+  const realNow = Date.now;
+  Date.now = () => dawnKst;
+  try {
+    pages["p-dawn"] = { parent: TEAM_DB, owner: "가영", priv: false };
+    const { out, calls } = await api("ga@x.com", "done", ["p-dawn"]);
+    const patch = calls.find(c => c.method === "PATCH");
+    const 완료일 = patch && patch.body.properties["완료일"].date.start;
+    ok("새벽 1:30에 완료하면 그날(9/16)로 기록된다", out.ok === true && 완료일 === "2026-09-16", 완료일);
+
+    // 화면이 "지난 것 / 오늘"을 가르는 기준도 같은 날이어야 한다
+    const snap = await api("ga@x.com", "data");
+    ok("화면이 받는 today도 한국 날짜다", snap.out.data.today === "2026-09-16", snap.out.data.today);
+
+    // 기록 탭이 자르는 날도 한국 기준이어야 한다. 노션에는 날짜 필터를 걸지
+    // 않고 받아온 줄을 여기서 거르므로(loadDone), 자르는 값이 UTC면 어제
+    // 끝낸 것까지 "오늘 하루"에 섞여 들어온다.
+    const prev = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/query")) {
+        const done = (id, day) => ({
+          id, parent: { database_id: TEAM_DB },
+          properties: {
+            "할 일": { title: [{ plain_text: id }] },
+            완료: { checkbox: true },
+            완료일: { date: { start: day } },
+            담당자: { select: { name: "가영" } },
+          },
+        });
+        return new Response(JSON.stringify({
+          results: [done("오늘-끝냄", "2026-09-16"), done("어제-끝냄", "2026-09-15")],
+          has_more: false, next_cursor: null,
+        }), { headers: { "content-type": "application/json" } });
+      }
+      return prev(url, init);
+    };
+    const log = await api("ga@x.com", "log", ["", 1]);
+    globalThis.fetch = prev;
+    const titles = (log.out.data || []).map(r => r.title);
+    ok("하루치를 물으면 한국 기준 오늘 것만 온다",
+       titles.length === 1 && titles[0] === "오늘-끝냄", titles.join(","));
+  } finally {
+    Date.now = realNow;
+  }
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);
