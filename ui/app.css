@@ -360,6 +360,52 @@ ul{list-style:none;margin:0;padding:0}
 .calchip[draggable="true"]{cursor:grab}
 .calchip.dragging{opacity:.35}
 .calday.drop-day{box-shadow:0 0 0 2px var(--accent) inset;background:var(--panel-2)}
+
+/* 배율 고르개. 기록 탭의 .seg를 그대로 쓰되, 여기서는 aria-pressed 대신
+   .on으로 표시한다 */
+.calviews button.on{background:var(--panel-2);color:var(--text);font-weight:500}
+
+/* 주 보기 — 칸이 일곱이니 하나가 넓다. 접을 이유가 없어 다 편다 */
+.cal.week .calday{min-height:190px}
+.cal.week .calchip .ct{white-space:normal;overflow:visible;text-overflow:clip}
+
+/* 년 보기 — 열두 달을 한 화면에. 칸은 글자 하나 크기라 제목이 안 들어간다.
+   점 하나로 "여기 뭔가 있다"만 알리고, 무엇인지는 눌러서 아래에서 본다 */
+.calyear{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.calmon h4{margin:0 0 3px;font-size:11px;font-weight:700;color:var(--muted)}
+.calmon h4 button{
+  border:0;background:none;font:inherit;color:inherit;cursor:pointer;padding:0;
+}
+.calmon h4 button:hover{color:var(--accent);text-decoration:underline}
+.calgrid.mini{gap:1px}
+.calgrid.mini .caldow{font-size:8px;padding-bottom:0}
+.calday.mini{
+  min-height:0;aspect-ratio:1;padding:0;border-radius:3px;
+  align-items:center;justify-content:center;gap:0;position:relative;
+}
+.calday.mini .d{font-size:9px;padding:0;line-height:1}
+.calday.mini.off{background:none;cursor:default}
+.calday.mini.off:hover{background:none}
+.caldot{
+  position:absolute;bottom:1px;width:3px;height:3px;border-radius:50%;
+  background:var(--muted);
+}
+.caldot.q1{background:var(--q1)}
+.caldot.q2{background:var(--q2)}
+.caldot.q3{background:var(--q3)}
+.caldot.q4{background:var(--q4)}
+
+/* 마감일 고르기 — 자주 쓰는 날은 단추로, 나머지는 달력으로.
+   칸을 누르면 달력이 열린다(app.js의 showPicker). 날짜를 손으로 치게 두면
+   형식을 외워야 하고, 틀리면 저장이 거부된다 */
+.duequick{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px}
+.duequick .chip{
+  border:0;background:var(--panel-2);color:var(--muted);font:inherit;font-size:10.5px;
+  padding:3px 8px;border-radius:99px;cursor:pointer;
+}
+.duequick .chip:hover{color:var(--text)}
+.duequick .chip.on{background:var(--accent);color:#fff}
+.due-edit input[type="date"]{cursor:pointer;width:100%}
 /* 좁은 위젯에서는 제목이 한두 글자로 잘려 읽을 수가 없다.
    글자를 버리고 사분면 색 점만 찍는다 — 어느 날이 무거운지는 그것으로 보이고,
    무엇인지는 그 날을 눌러 아래 목록에서 읽는다 */

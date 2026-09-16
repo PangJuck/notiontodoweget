@@ -13,7 +13,8 @@ let doneItems = [];
 let logLoaded = false;
 
 let tab = "matrix";
-let calMonth = ""; // 캘린더가 보고 있는 달 "YYYY-MM". 비면 오늘이 든 달
+let calAt = "";    // 캘린더가 보고 있는 날 "YYYY-MM-DD". 비면 오늘
+let calView = "month"; // 캘린더 배율: week | month | year
 let calDay = "";   // 눌러서 펼쳐 둔 날
 let logDays = 90;  // 기록 탭이 거슬러 보는 날 수. 0이면 전체
 let logGroup = "day"; // 기록 묶는 단위: day | week | month
@@ -201,9 +202,30 @@ function memoEditor(it){
   </div>`;
 }
 
+/* 자주 쓰는 날은 세는 것보다 누르는 게 빠르다. 오늘을 기준으로 뽑는다. */
+function quickDues(){
+  const t = dayOf(TODAY || isoDay(new Date()));
+  const dow = t.getDay();
+  return [
+    ["오늘", isoDay(t)],
+    ["내일", isoDay(addDays(t, 1))],
+    ["이번 주 금", isoDay(addDays(t, (5 - dow + 7) % 7))],
+    ["다음 주 월", isoDay(addDays(t, 8 - dow))],
+  ];
+}
+
 function dueEditor(it){
+  // 칸을 누르면 달력이 열린다. 안 그러면 날짜를 손으로 쳐야 하는데, 형식이
+  // 틀리면 거부당하고 형식 자체를 외워야 한다. 달력 아이콘은 너무 작다.
+  const quick = quickDues().map(([label, day]) =>
+    `<button type="button" class="chip${it.due === day ? " on" : ""}"
+       onclick="setDueTo('${it.id}','${day}')">${label}</button>`).join("");
   return `<div class="memo-edit due-edit">
-    <input type="date" data-due-id="${esc(it.id)}" value="${esc(it.due || "")}">
+    <div class="duequick">${quick}</div>
+    <input type="date" data-due-id="${esc(it.id)}" value="${esc(it.due || "")}"
+      onclick="this.showPicker && this.showPicker()"
+      onfocus="this.showPicker && this.showPicker()"
+      onchange="saveDue('${it.id}')">
     <div class="memo-edit-btns">
       <button type="button" onclick="saveDue('${it.id}')">저장</button>
       <button type="button" class="ghost" onclick="saveDue('${it.id}', true)">날짜 지우기</button>
@@ -294,25 +316,104 @@ function renderDates(){
 }
 
 /* ── 캘린더 ─────────────────────────────
-   마감일을 달에 얹어 본다. 노션 캘린더 보기와 같은 것을 보되, 완료 체크와
+   마감일을 달력에 얹어 본다. 노션 캘린더 보기와 같은 것을 보되, 완료 체크와
    사분면 색은 이 화면 것을 그대로 쓴다. 칸을 누르면 그 날만 아래에 펼친다.
-   달에 안 잡히는 두 가지(지난 마감, 날짜 미정)는 달력 아래에 따로 붙인다 —
-   달력만 보고 있으면 놓치기 딱 좋은 것들이다. */
+
+   배율이 셋이다 — 주는 이번 주에 집중할 때, 월은 평소, 년은 멀리 있는 것을
+   훑을 때다. 배율이 바뀌어도 보는 데이터는 같고, 달라지는 것은 한 화면에
+   까는 날의 범위뿐이다. 그래서 아래 "지난 마감"도 배율을 따라간다 —
+   화면에 이미 나와 있는 것을 또 적으면 같은 항목이 두 번 그려진다. */
 const DOW = ["일","월","화","수","목","금","토"];
-const CAL_CHIPS = 3; // 한 칸에 미리 보여줄 개수. 나머지는 +N
+const CAL_CHIPS = 3;   // 월 보기 한 칸에 미리 보여줄 개수. 나머지는 +N
+const WEEK_CHIPS = 12; // 주 보기는 칸이 크다. 접을 이유가 거의 없다
+const VIEWS = [["week","주"],["month","월"],["year","년"]];
+
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const dayOf = (iso) => new Date(+iso.slice(0,4), +iso.slice(5,7)-1, +iso.slice(8,10));
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
 
-function calAnchor(){
-  return calMonth || (TODAY ? TODAY.slice(0,7) : isoDay(new Date()).slice(0,7));
+function calAnchor(){ return calAt || TODAY || isoDay(new Date()); }
+
+/* 지금 배율에서 화면에 깔리는 날의 범위와 제목. 월 보기는 달을 꽉 채우느라
+   앞뒤 달을 며칠씩 물고 있으므로, 달이 아니라 격자의 처음과 끝을 준다. */
+function calRange(){
+  const a = dayOf(calAnchor());
+  if (calView === "week"){
+    const s = addDays(a, -a.getDay());
+    const e = addDays(s, 6);
+    return { start: s, end: e,
+      title: `${s.getMonth()+1}월 ${s.getDate()}일 – ${e.getMonth()+1}월 ${e.getDate()}일` };
+  }
+  if (calView === "year"){
+    return { start: new Date(a.getFullYear(), 0, 1), end: new Date(a.getFullYear(), 11, 31),
+      title: `${a.getFullYear()}년` };
+  }
+  const first = new Date(a.getFullYear(), a.getMonth(), 1);
+  const lead = first.getDay();
+  const weeks = Math.ceil((lead + new Date(a.getFullYear(), a.getMonth()+1, 0).getDate()) / 7);
+  return { start: addDays(first, -lead), end: addDays(first, weeks*7 - lead - 1),
+    title: `${a.getFullYear()}년 ${a.getMonth()+1}월` };
 }
+
 /* 사분면 순으로. 같은 칸 안에서는 급한 것이 위에 있어야 눈에 먼저 들어온다 */
 function quadSort(a, b){ return ((a.q || 9) - (b.q || 9)) || a.title.localeCompare(b.title); }
 
-function renderCal(){
-  const ym = calAnchor();
-  const y = +ym.slice(0,4), m = +ym.slice(5,7);
+function calCell(dt, byDay, { max, month, mini }){
+  const day = isoDay(dt);
+  const list = (byDay[day] || []).slice().sort(quadSort);
+  const cls = [
+    mini ? "mini" : "",
+    month !== undefined && dt.getMonth() !== month ? "off" : "",
+    day === TODAY ? "today" : "",
+    day === calDay ? "on" : "",
+    dt.getDay() === 0 ? "sun" : "",
+  ].filter(Boolean).join(" ");
 
+  // 년 보기는 칸이 글자 하나 크기다. 제목을 넣을 자리가 없으니 점 하나로
+  // "여기 뭔가 있다"만 알리고, 무엇인지는 눌러서 아래에서 본다.
+  if (mini){
+    const dot = list.length
+      ? `<span class="caldot q${list[0].q || 0}" title="${esc(String(list.length))}건"></span>` : "";
+    return `<div class="calday ${cls}" data-day="${day}" onclick="calPick('${day}')">
+      <span class="d">${dt.getDate()}</span>${dot}</div>`;
+  }
+
+  const chips = list.slice(0, max).map(i =>
+    `<span class="calchip q${i.q || 0}${i.wait?" waiting":""}${i.due < TODAY?" over":""}"
+      data-id="${esc(i.id)}" title="${esc(i.title)}${canSetDue()?" — 끌어서 날짜를 옮깁니다":""}">
+      <button class="chk" title="완료" onclick="event.stopPropagation();complete('${i.id}')"></button>
+      <span class="ct">${esc(i.title)}</span></span>`).join("");
+  const more = list.length > max ? `<span class="calmore">+${list.length - max}</span>` : "";
+  return `<div class="calday${cls?" "+cls:""}" data-day="${day}" onclick="calPick('${day}')">
+    <span class="d">${dt.getDate()}</span>
+    <div class="calchips">${chips}${more}</div></div>`;
+}
+
+const dows = () => DOW.map((d, n) => `<div class="caldow${n===0?" sun":""}">${d}</div>`).join("");
+
+function calYear(y, byDay){
+  let h = `<div class="calyear">`;
+  for (let m = 0; m < 12; m++){
+    const first = new Date(y, m, 1);
+    const lead = first.getDay();
+    const weeks = Math.ceil((lead + new Date(y, m+1, 0).getDate()) / 7);
+    const at = `${y}-${String(m+1).padStart(2,"0")}-01`;
+    h += `<div class="calmon">
+      <h4><button type="button" onclick="calZoom('${at}')">${m+1}월</button></h4>
+      <div class="calgrid mini">${dows()}`;
+    for (let n = 0; n < weeks*7; n++){
+      const dt = addDays(first, n - lead);
+      h += dt.getMonth() === m
+        ? calCell(dt, byDay, { mini: true })
+        : `<div class="calday mini off"></div>`;
+    }
+    h += `</div></div>`;
+  }
+  return h + `</div>`;
+}
+
+function renderCal(){
   const all = view();
   const byDay = {};
   const undated = [];
@@ -320,59 +421,46 @@ function renderCal(){
     if (i.due) (byDay[i.due] ||= []).push(i);
     else undated.push(i);
   }
-
   const lateCount = all.filter(i => i.due && i.due < TODAY).length;
+  const r = calRange();
+  const a = dayOf(calAnchor());
 
-  const lead = new Date(y, m-1, 1).getDay();          // 1일이 무슨 요일인지
-  const days = new Date(y, m, 0).getDate();           // 그 달의 마지막 날
-  const weeks = Math.ceil((lead + days) / 7);
-
-  let h = `<div class="cal"><div class="calbar">
-    <button type="button" class="calnav" onclick="calShift(-1)" title="이전 달">&#8249;</button>
-    <span class="mon">${y}년 ${m}월</span>
-    <button type="button" class="calnav" onclick="calShift(1)" title="다음 달">&#8250;</button>
+  let h = `<div class="cal ${calView}"><div class="calbar">
+    <button type="button" class="calnav" onclick="calShift(-1)" title="이전">&#8249;</button>
+    <span class="mon">${r.title}</span>
+    <button type="button" class="calnav" onclick="calShift(1)" title="다음">&#8250;</button>
     <button type="button" class="calnow" onclick="calToday()">오늘</button>
+    <span class="seg calviews">${VIEWS.map(([v, label]) =>
+      `<button type="button" class="${calView===v?"on":""}" onclick="calMode('${v}')">${label}</button>`).join("")}</span>
     ${lateCount ? `<span class="callate">지난 마감 ${lateCount}</span>` : ""}
-  </div><div class="calgrid">`;
-  h += DOW.map((d, n) => `<div class="caldow${n===0?" sun":""}">${d}</div>`).join("");
+  </div>`;
 
-  for (let n = 0; n < weeks * 7; n++){
-    const dt = new Date(y, m-1, 1 - lead + n);
-    const day = isoDay(dt);
-    const list = (byDay[day] || []).slice().sort(quadSort);
-    const chips = list.slice(0, CAL_CHIPS).map(i =>
-      `<span class="calchip q${i.q || 0}${i.wait?" waiting":""}${i.due < TODAY?" over":""}"
-        data-id="${esc(i.id)}" title="${esc(i.title)}${canSetDue()?" — 끌어서 날짜를 옮깁니다":""}">
-        <button class="chk" title="완료" onclick="event.stopPropagation();complete('${i.id}')"></button>
-        <span class="ct">${esc(i.title)}</span></span>`).join("");
-    const more = list.length > CAL_CHIPS
-      ? `<span class="calmore">+${list.length - CAL_CHIPS}</span>` : "";
-    const cls = [
-      dt.getMonth() + 1 !== m ? "off" : "",
-      day === TODAY ? "today" : "",
-      day === calDay ? "on" : "",
-      dt.getDay() === 0 ? "sun" : "",
-    ].filter(Boolean).join(" ");
-    h += `<div class="calday${cls?" "+cls:""}" data-day="${day}" onclick="calPick('${day}')">
-      <span class="d">${dt.getDate()}</span>
-      <div class="calchips">${chips}${more}</div></div>`;
+  if (calView === "year"){
+    h += calYear(a.getFullYear(), byDay);
+  } else {
+    const max = calView === "week" ? WEEK_CHIPS : CAL_CHIPS;
+    const month = calView === "month" ? a.getMonth() : undefined;
+    h += `<div class="calgrid">${dows()}`;
+    for (let d = new Date(r.start); d <= r.end; d = addDays(d, 1)){
+      h += calCell(d, byDay, { max, month });
+    }
+    h += `</div>`;
   }
-  h += `</div>`;
 
   if (calDay){
     const list = (byDay[calDay] || []).slice().sort(quadSort);
-    const d = new Date(+calDay.slice(0,4), +calDay.slice(5,7)-1, +calDay.slice(8,10));
+    const d = dayOf(calDay);
     h += `<div class="group"><h3>${md(calDay)} (${DOW[d.getDay()]}) 마감<span class="rule"></span>
       <span class="cnt">${list.length}</span></h3>
       <ul>${list.length ? list.map(i=>row(i,false)).join("")
         : `<li class="empty">이 날 마감인 일이 없습니다.</li>`}</ul></div>`;
   }
 
-  // 지금 보고 있는 달에 이미 칸으로 나와 있는 것은 아래에 또 적지 않는다.
-  // 펼쳐 둔 날과 겹치는 것도 마찬가지다 — 같은 항목을 두 번 그리면 메모 편집창이 엉킨다.
-  const gridStart = isoDay(new Date(y, m-1, 1 - lead));
+  // 화면에 이미 칸으로 나와 있는 것은 아래에 또 적지 않는다. 펼쳐 둔 날과
+  // 겹치는 것도 마찬가지다 — 같은 항목을 두 번 그리면 편집창이 엉킨다.
+  const from = isoDay(r.start);
   const over = all
-    .filter(i => i.due && i.due < TODAY && i.due < gridStart && i.due !== calDay)
+    .filter(i => i.due && i.due < TODAY && i.due < from && i.due !== calDay)
     .sort(dateSort);
   if (over.length){
     h += `<div class="group past"><h3>지난 마감<span class="rule"></span>
@@ -395,8 +483,10 @@ const canSetDue = () => can("setdue");
    똑같이 바꿀 수 있게 열어 뒀다. */
 function wireCalDrag(){
   if (!canSetDue()) return;
-  const grid = body.querySelector(".calgrid");
-  if (!grid) return;
+  body.querySelectorAll(".calgrid").forEach(grid => wireGrid(grid));
+}
+
+function wireGrid(grid){
   grid.querySelectorAll(".calchip").forEach(chip => {
     chip.draggable = true;
     chip.addEventListener("dragstart", e => {
@@ -425,14 +515,21 @@ function wireCalDrag(){
   });
 }
 
+/* 화살표 한 칸이 무엇인지는 배율이 정한다 — 주 보기에서 한 달씩 뛰면
+   쓸모가 없고, 년 보기에서 하루씩 가면 끝이 없다. */
 window.calShift = (delta) => {
-  const [y, m] = calAnchor().split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  calMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  const a = dayOf(calAnchor());
+  const d = calView === "week" ? addDays(a, 7 * delta)
+          : calView === "year" ? new Date(a.getFullYear() + delta, a.getMonth(), 1)
+          : new Date(a.getFullYear(), a.getMonth() + delta, 1);
+  calAt = isoDay(d);
   calDay = "";
   render();
 };
-window.calToday = () => { calMonth = ""; calDay = ""; render(); };
+window.calToday = () => { calAt = ""; calDay = ""; render(); };
+window.calMode = (v) => { calView = v; calDay = ""; render(); };
+// 년 보기에서 달 이름을 누르면 그 달로 확대한다
+window.calZoom = (day) => { calAt = day; calView = "month"; calDay = ""; render(); };
 window.calPick = (day) => { calDay = calDay === day ? "" : day; render(); };
 
 /* ── 기록 ───────────────────────────────
@@ -783,6 +880,8 @@ window.toggleDue = (id) => {
   }
 };
 window.cancelDue = () => { editingDue = null; render(); };
+// 빠른 날짜 단추. 고르는 순간이 곧 저장이다 — 한 번 더 누르게 할 이유가 없다.
+window.setDueTo = (id, day) => { editingDue = null; moveDue(id, day); };
 window.saveDue = (id, clear) => {
   const inp = body.querySelector(`.due-edit input[data-due-id="${CSS.escape(id)}"]`);
   const day = clear ? "" : (inp ? inp.value : "");
