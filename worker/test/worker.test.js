@@ -495,5 +495,42 @@ console.log("── 화면을 열 때 같이 맞추기 (시계를 못 믿을 때
   globalThis.fetch = prevFetch;
 }
 
+console.log("── 밖에서 두드려 깨우는 문 (/sync)");
+{
+  const pem = "-----BEGIN PRIVATE KEY-----\n" +
+    privateKey.export({ type: "pkcs8", format: "der" }).toString("base64").replace(/(.{64})/g, "$1\n") +
+    "\n-----END PRIVATE KEY-----\n";
+  const TOKEN = "z".repeat(43);
+  const calEnv = { ...env, SYNC_TOKEN: TOKEN, CALENDAR: JSON.stringify({
+    provider: "google", client_email: "bot@x.iam.gserviceaccount.com", private_key: pem,
+    calendar_id: "cal123@group.calendar.google.com", owner: "성준" }) };
+
+  let asked = [];
+  const prevFetch = globalThis.fetch;
+  const jsonRes = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u);
+    asked.push(s);
+    if (s.includes("oauth2.googleapis.com/token")) return jsonRes({ access_token: "tok", expires_in: 3600 });
+    if (s.includes("googleapis.com/calendar")) return jsonRes({ items: [] });
+    if (s.includes("/query")) return jsonRes({ results: [], has_more: false });
+    return prevFetch(u, init);
+  };
+  const get = (path, e = calEnv) => worker.fetch(new Request("https://w.dev" + path), e);
+
+  ok("토큰이 없으면 길 자체가 없다", (await get("/sync/whatever", env)).status === 404);
+  ok("틀린 토큰은 404", (await get("/sync/" + "x".repeat(43))).status === 404);
+  ok("길이만 같고 값이 다른 토큰도 404", (await get("/sync/" + "z".repeat(42) + "x")).status === 404);
+
+  asked = [];
+  const res = await get("/sync/" + TOKEN);
+  const body = await res.text();
+  ok("맞는 토큰이면 맞추기가 돈다", res.status === 200 && asked.some(u => u.includes("/query")));
+  ok("돌려주는 것은 ok 뿐이다 — 할 일은 이 문으로 안 나간다", body === "ok", body);
+  ok("로그인(Access 토큰) 없이 두드릴 수 있다", res.status === 200);
+
+  globalThis.fetch = prevFetch;
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);

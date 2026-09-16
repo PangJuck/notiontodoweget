@@ -552,6 +552,34 @@ function maybeSync(env) {
   if (typeof env.waitUntil === "function") env.waitUntil(done);
 }
 
+/* 밖에서 두드려 깨우는 문.
+   Cloudflare의 시계([triggers])가 등록은 되는데 안 깨는 일이 있어서, 무료
+   cron 서비스 같은 것이 대신 두드릴 수 있게 열어 둔다.
+
+   **Access 밖이다** — 밖에서 두드리는 것이 요점이니 로그인을 시킬 수가 없다.
+   그래서 /feed/와 같은 규칙을 지킨다:
+   1. SYNC_TOKEN 시크릿이 없으면 아예 없는 길이다 (404)
+   2. 토큰이 틀려도 404다. 403을 주면 "주소는 맞다"를 알려 주는 셈이다
+   3. **나가는 것이 없다.** 맞추라고 시킬 뿐이고, 돌려주는 것은 ok 세 글자다.
+      할 일 제목도 건수도 이 문으로는 안 나간다 */
+async function serveSync(env, url) {
+  const secret = env.SYNC_TOKEN;
+  const gone = () => new Response("Not Found", { status: 404 });
+  if (!secret) return gone();
+
+  const given = url.pathname.slice("/sync/".length);
+  if (given.length !== secret.length || given !== secret) return gone();
+
+  const out = await reconcile(env);
+  return new Response(out.ok ? "ok" : "off", {
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-robots-tag": "noindex, nofollow",
+    },
+  });
+}
+
 /* 구글 캘린더가 읽어 가는 문.
    **Access 밖이다** — 구글 서버는 로그인을 못 한다. 문을 지키는 것은 주소에
    박힌 난수뿐이라, 여기서는 세 가지를 지킨다:
@@ -1094,6 +1122,16 @@ export default {
         return await serveFeed(env, url);
       } catch (e) {
         return new Response("일정을 만들지 못했다", { status: 502 });
+      }
+    }
+
+    // 밖에서 두드려 깨우는 문. 시계가 안 깰 때의 대비책이다.
+    if (url.pathname.startsWith("/sync/")) {
+      try {
+        return await serveSync(env, url);
+      } catch (e) {
+        console.log(`[calendar] 밖에서 깨운 맞추기 실패: ${e && e.message}`);
+        return new Response("맞추지 못했다", { status: 502 });
       }
     }
 
