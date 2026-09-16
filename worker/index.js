@@ -18,11 +18,14 @@
  */
 
 import { syncTodo } from "./connectors/calendar.js";
+import { buildIcs } from "./feed.js";
 
 const PERSONAL = [
   ["업무", "0e928040351d4fdfae49f77e67e914e6"],
   ["개인", "1730d225784340f88e15f9af9d51ea78"],
 ];
+// 구글 캘린더에 구독시키는 .ics로 나가는 DB. 개인 것 하나뿐이다 — worker/feed.js 참고.
+const FEED_DB = PERSONAL[1][1];
 // 팀 전용 DB. 팀원에게 노션 자체는 공유하지 않는다 — 워커만 Integration으로 읽는다.
 const TEAM_DB = "6f9008aa63f249109b6ed29a374b529d";
 
@@ -530,6 +533,34 @@ async function trash(env, token, pageId) {
   syncTodo(env, "remove", { pageId });
 }
 
+/* 구글 캘린더가 읽어 가는 문.
+   **Access 밖이다** — 구글 서버는 로그인을 못 한다. 문을 지키는 것은 주소에
+   박힌 난수뿐이라, 여기서는 세 가지를 지킨다:
+   1. ICS_TOKEN 시크릿이 없으면 아예 없는 길이다 (404)
+   2. 토큰이 틀려도 404다. 403을 주면 "주소는 맞다"를 알려 주는 셈이다
+   3. 나가는 것은 개인 DB의 미완료 항목뿐이다. 팀 DB는 이 문으로 안 나간다 */
+async function serveFeed(env, url) {
+  const secret = env.ICS_TOKEN;
+  const gone = () => new Response("Not Found", { status: 404 });
+  if (!secret) return gone();
+
+  const given = url.pathname.slice("/feed/".length).replace(/\.ics$/, "");
+  if (given.length !== secret.length || given !== secret) return gone();
+  if (!env.NOTION_TOKEN) return new Response("토큰이 없다", { status: 500 });
+
+  const rows = await fetchRows(env.NOTION_TOKEN, FEED_DB, null);
+  const items = rows.map((r) => parseRow(r, "개인", ""));
+  const body = buildIcs(items, { name: "개인 할 일 (Ulick)" });
+  return new Response(body, {
+    headers: {
+      "content-type": "text/calendar; charset=utf-8",
+      "cache-control": "private, max-age=600",
+      // 이 주소가 검색에 잡히는 일은 없어야 한다
+      "x-robots-tag": "noindex, nofollow",
+    },
+  });
+}
+
 function describe(err) {
   if (err.denied) return ["내 항목이 아니다", "새로고침하면 지금 볼 수 있는 것만 다시 불러옵니다."];
   if (err.bad) return err.bad;
@@ -1025,6 +1056,19 @@ export default {
 
     if (url.pathname === "/") {
       return renderShell(env, request.url);
+    }
+
+    // 구글 캘린더가 구독하는 .ics. 로그인 없이 읽히는 유일한 길이므로
+    // 신원 확인보다 먼저 받아 끝낸다. 지키는 것은 주소의 난수뿐이다.
+    if (url.pathname.startsWith("/feed/")) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method Not Allowed", { status: 405, headers: { allow: "GET" } });
+      }
+      try {
+        return await serveFeed(env, url);
+      } catch (e) {
+        return new Response("일정을 만들지 못했다", { status: 502 });
+      }
     }
 
     // 팀원의 Claude가 붙는 문. 화면과 같은 신원·같은 거르기를 지난다.

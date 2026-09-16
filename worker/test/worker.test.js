@@ -138,5 +138,70 @@ console.log("── 캘린더 커넥터 (아직 안 붙인 상태)");
   ok("커넥터가 터져도 할 일은 저장된다", out.ok === true);
 }
 
+console.log("── 구글 캘린더용 .ics 피드");
+{
+  // 노션이 개인 DB를 물으면 할 일 두 건을 준다
+  const rowsFor = (dbId) => dbId === PERSONAL_DB ? [
+    { id: "aaaa-bbbb", properties: {
+        "할 일": { title: [{ plain_text: "치과 예약; 오후, 반차\n확인" }] },
+        "마감일": { date: { start: "2026-09-18" } },
+        "메모": { rich_text: [{ plain_text: "보험 서류 챙기기" }] },
+        "우선순위": { select: { name: "2 핵심 업무 (중요+안시급)" } } } },
+    { id: "cccc-dddd", properties: {
+        "할 일": { title: [{ plain_text: "날짜 없는 것은 달력에 못 올린다" }] } } },
+  ] : [];
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u);
+    if (s.endsWith("/query")) {
+      const db = s.match(/databases\/([^/]+)\/query/)[1];
+      return new Response(JSON.stringify({ results: rowsFor(db), has_more: false }),
+        { headers: { "content-type": "application/json" } });
+    }
+    return prevFetch(u, init);
+  };
+  const feedEnv = { ...env, ICS_TOKEN: "s".repeat(43) };
+  const get = (path, e = feedEnv) => worker.fetch(new Request("https://w.dev" + path), e);
+
+  ok("토큰이 없으면 길 자체가 없다", (await get("/feed/whatever.ics", env)).status === 404);
+  ok("틀린 토큰은 404 (403이면 주소가 맞다고 알려주는 셈)",
+     (await get("/feed/" + "x".repeat(43) + ".ics")).status === 404);
+  ok("길이만 같고 값이 다른 토큰도 404",
+     (await get("/feed/" + "s".repeat(42) + "x.ics")).status === 404);
+
+  const res = await get("/feed/" + "s".repeat(43) + ".ics");
+  const body = await res.text();
+  ok("맞는 토큰이면 캘린더를 내준다",
+     res.status === 200 && res.headers.get("content-type").startsWith("text/calendar"));
+  ok("로그인(Access 토큰) 없이 읽힌다", body.startsWith("BEGIN:VCALENDAR"));
+  ok("마감일 있는 것만 일정이 된다", (body.match(/BEGIN:VEVENT/g) || []).length === 1);
+  ok("종일 일정이고 끝 날짜는 다음 날이다",
+     body.includes("DTSTART;VALUE=DATE:20260918") && body.includes("DTEND;VALUE=DATE:20260919"));
+  ok("세미콜론과 줄바꿈이 escape 된다", body.includes("치과 예약\\; 오후\\, 반차\\n확인"));
+  ok("줄은 CRLF로 끝난다", body.includes("\r\n") && !/[^\r]\n/.test(body));
+  ok("75옥텟 넘는 줄이 없다(접힌다)",
+     body.split("\r\n").every(l => new TextEncoder().encode(l).length <= 75));
+  ok("검색에 잡히지 않게 막아 둔다", (res.headers.get("x-robots-tag") || "").includes("noindex"));
+
+  // 이 문으로 팀 DB가 나가면 안 된다
+  let asked = [];
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u);
+    if (s.endsWith("/query")) {
+      asked.push(s.match(/databases\/([^/]+)\/query/)[1]);
+      return new Response(JSON.stringify({ results: [], has_more: false }),
+        { headers: { "content-type": "application/json" } });
+    }
+    return prevFetch(u, init);
+  };
+  await get("/feed/" + "s".repeat(43) + ".ics");
+  ok("개인 DB만 묻는다 — 팀·업무는 이 문으로 안 나간다",
+     asked.length === 1 && asked[0] === PERSONAL_DB, asked.join(","));
+
+  ok("POST로는 못 부른다",
+     (await worker.fetch(new Request("https://w.dev/feed/x.ics", { method: "POST" }), feedEnv)).status === 405);
+  globalThis.fetch = prevFetch;
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);

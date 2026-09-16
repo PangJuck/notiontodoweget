@@ -73,6 +73,10 @@ DB를 직접 질의하므로, 뷰를 고치거나 지워도 그쪽 동작은 바
 - **팀 DB 안에는 사람별로 가리는 장치가 없다.** 올라간 것은 팀원끼리 서로 다
   본다. 팀에 열 일이 아니면 팀 DB에 넣지 않는다 — 성준의 개인 DB는 팀원에게
   애초에 보이지 않는다(워커가 팀원에게는 팀 DB 하나만 연다)
+- **`/feed/<난수>.ics` 하나만 Cloudflare Access 밖에 있다.** 구글 캘린더가 읽어
+  가는 길이라 로그인을 시킬 수 없어서다. 나가는 것은 개인 DB의 미완료 항목뿐이고
+  (`ICS_TOKEN` 시크릿이 없으면 길 자체가 404), 주소를 아는 사람은 제목을 다
+  본다 — 링크를 아무 데도 붙여넣지 않는다
 - 설정 방법은 `worker/README.md`의 "팀 모드" 절에 있다
 
 **어디에 넣을지가 중요하다.** 결혼 준비, 학업, 병원, 가족, 개인 재정은 반드시
@@ -120,7 +124,8 @@ scripts/
   .env                          NOTION_TODO_TOKEN=... (gitignore, 커밋 안 됨)
 worker/
   index.js                      Cloudflare Worker. 노션 호출 로직을 JS로 재구현, 토큰을 시크릿으로 쥐고 /api/*를 대신 불러줌
-  connectors/calendar.js        캘린더 커넥터 자리. 아직 안 붙어 있다 (docs/구글-캘린더-연동-계획.md)
+  feed.js                       개인 할 일을 .ics로 내보낸다. 구글 캘린더가 /feed/<난수>.ics를 구독한다
+  connectors/calendar.js        구글 캘린더 API 커넥터 자리(팀·회의실용). 아직 안 붙어 있다
   test/worker.test.js           워커를 실제로 돌려 보는 시험. `cd worker && npm test`. 노션·토큰 없이 돈다
   wrangler.toml                 [assets] directory = "../ui" 로 화면 코드를 같이 서빙
   .dev.vars                     로컬 개발용 토큰 (gitignore, 커밋 안 됨)
