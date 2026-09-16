@@ -570,6 +570,9 @@ async function serveSync(env, url) {
   const given = url.pathname.slice("/sync/".length);
   if (given.length !== secret.length || given !== secret) return gone();
 
+  // 시계가 깼는지 밖에서 두드린 건지 로그에서 구분이 돼야, 바깥 cron이 실제로
+  // 닿고 있는지 확인할 수 있다. 토큰은 찍지 않는다 — 맞았다는 사실만 남긴다.
+  console.log("[calendar] 밖에서 두드려 깨웠다 (/sync)");
   const out = await reconcile(env);
   return new Response(out.ok ? "ok" : "off", {
     headers: {
