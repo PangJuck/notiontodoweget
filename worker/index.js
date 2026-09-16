@@ -19,16 +19,13 @@
 
 import { syncTodo } from "./connectors/calendar.js";
 import { buildIcs } from "./feed.js";
+import { PERSONAL_DB, TEAM_DB } from "./dbs.js";
 
-// 성준 개인 DB. 팀원에게는 이 문이 열리지 않는다.
-const PERSONAL_DB = "1730d225784340f88e15f9af9d51ea78";
 // 회사 일은 전부 팀 DB로 모았다. 업무 DB(0e928040...)는 더 이상 쓰지 않는다 —
 // 목록이 셋이면 넣을 때마다 어디로 가는지 헷갈리고, 실제로 헷갈렸다.
 const PERSONAL = [["개인", PERSONAL_DB]];
 // 구글 캘린더에 구독시키는 .ics로 나가는 DB — worker/feed.js 참고.
 const FEED_DB = PERSONAL_DB;
-// 팀 전용 DB. 팀원에게 노션 자체는 공유하지 않는다 — 워커만 Integration으로 읽는다.
-const TEAM_DB = "6f9008aa63f249109b6ed29a374b529d";
 
 /* ── 신원 ──────────────────────────────
    TEAM 시크릿이 없으면 성준 혼자 쓰는 상태가 된다(개인 DB만).
@@ -1052,8 +1049,15 @@ ${app}
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // 워커는 응답을 보내고 나면 남은 일을 끊을 수 있다. 캘린더 쓰기는 응답보다
+    // 뒤에 끝나므로(일부러 기다리지 않는다), 끊지 말라고 알려 줄 손잡이를 얹는다.
+    if (ctx && typeof ctx.waitUntil === "function" && !env.waitUntil) {
+      env = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
+        waitUntil: ctx.waitUntil.bind(ctx),
+      });
+    }
 
     if (url.pathname === "/") {
       return renderShell(env, request.url);

@@ -206,5 +206,98 @@ console.log("── 구글 캘린더용 .ics 피드");
   globalThis.fetch = prevFetch;
 }
 
+console.log("── 구글 캘린더에 실제로 쓰기");
+{
+  // 서비스 계정 키 노릇을 할 열쇠. 위에서 만든 것을 그대로 쓴다.
+  const pem = "-----BEGIN PRIVATE KEY-----\n" +
+    privateKey.export({ type: "pkcs8", format: "der" }).toString("base64").replace(/(.{64})/g, "$1\n") +
+    "\n-----END PRIVATE KEY-----\n";
+  const calEnv = { ...env, CALENDAR: JSON.stringify({
+    provider: "google", client_email: "bot@x.iam.gserviceaccount.com",
+    private_key: pem, calendar_id: "cal123@group.calendar.google.com", owner: "성준" }) };
+
+  let seen = [];
+  let notionRow = null;
+  const prevFetch = globalThis.fetch;
+  const jsonRes = (o, status = 200) =>
+    new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (u, init = {}) => {
+    const s = String(u);
+    const body = init.body;
+    seen.push({ url: s, method: init.method || "GET", body });
+    if (s.includes("oauth2.googleapis.com/token")) return jsonRes({ access_token: "tok", expires_in: 3600 });
+    if (s.includes("googleapis.com/calendar")) return jsonRes({ id: "e" });
+    if (/api\.notion\.com\/v1\/pages\/[^/]+$/.test(s) && (init.method || "GET") === "GET" && notionRow)
+      return jsonRes(notionRow);
+    return prevFetch(u, init);
+  };
+  const calls = (pat) => seen.filter(c => c.url.includes(pat));
+  const run = async (args) => {
+    seen = [];
+    const res = await worker.fetch(new Request("https://w.dev/api/setdue", {
+      method: "POST", headers: { "Cf-Access-Jwt-Assertion": mint("sj@x.com"), "content-type": "application/json" },
+      body: JSON.stringify({ args }),
+    }), calEnv);
+    await res.json();
+    await new Promise(r => setTimeout(r, 80)); // 캘린더는 응답을 기다리지 않는다
+  };
+
+  // 개인 DB 항목
+  pages["p-priv"] = { parent: PERSONAL_DB, owner: "", priv: false };
+  notionRow = { id: "p-priv", url: "https://notion.so/p-priv",
+    parent: { database_id: PERSONAL_DB },
+    properties: { "할 일": { title: [{ plain_text: "치과 예약" }] },
+      "마감일": { date: { start: "2026-09-25" } },
+      "메모": { rich_text: [{ plain_text: "보험 서류" }] }, "완료": { checkbox: false } } };
+  await run(["p-priv", "2026-09-25"]);
+  const put = calls("googleapis.com/calendar").find(c => c.method === "PUT");
+  ok("개인 항목이 구글 캘린더에 써진다", !!put, put ? "" : JSON.stringify(seen.map(c=>c.url)));
+  ok("공유받은 그 캘린더에만 쓴다", put && put.url.includes(encodeURIComponent("cal123@group.calendar.google.com")));
+  const ev = put && JSON.parse(put.body);
+  ok("종일 일정이고 끝 날짜는 다음 날", ev && ev.start.date === "2026-09-25" && ev.end.date === "2026-09-26");
+  ok("제목과 메모가 실린다", ev && ev.summary === "치과 예약" && ev.description.includes("보험 서류"));
+  ok("일정 id를 노션 page_id에서 만든다(두 번 안 생기게)", ev && ev.id === "todop-priv".replace(/-/g, ""));
+  ok("하루를 바쁨으로 잡지 않는다", ev && ev.transparency === "transparent");
+
+  // 토큰 요청이 진짜로 서명돼 있는지 — 공개키로 검증해 본다
+  const tokenCall = calls("oauth2.googleapis.com").pop();
+  const assertion = new URLSearchParams(tokenCall.body).get("assertion");
+  const [h, b, sg] = assertion.split(".");
+  ok("JWT 서명이 서비스 계정 키로 검증된다",
+     crypto.verify("RSA-SHA256", Buffer.from(`${h}.${b}`), publicKey, Buffer.from(sg, "base64url")));
+  const claim = JSON.parse(Buffer.from(b, "base64url").toString());
+  ok("남의 자격으로 행세하지 않는다(sub 없음)", !claim.sub, JSON.stringify(claim));
+  ok("일정 권한만 달라고 한다", claim.scope === "https://www.googleapis.com/auth/calendar.events");
+
+  // 완료된 항목은 캘린더에서 빠진다
+  notionRow = { ...notionRow, properties: { ...notionRow.properties, "완료": { checkbox: true } } };
+  await run(["p-priv", "2026-09-25"]);
+  ok("완료하면 일정이 지워진다", calls("googleapis.com/calendar").some(c => c.method === "DELETE"));
+
+  // 팀 DB — 내 것은 올라가고
+  pages["p-team"] = { parent: TEAM_DB, owner: "성준", priv: false };
+  notionRow = { id: "p-team", url: "", parent: { database_id: TEAM_DB },
+    properties: { "할 일": { title: [{ plain_text: "출고 확인" }] },
+      "마감일": { date: { start: "2026-09-30" } }, "담당자": { select: { name: "성준" } },
+      "완료": { checkbox: false } } };
+  await run(["p-team", "2026-09-30"]);
+  ok("팀 DB의 내 항목도 올라간다", calls("googleapis.com/calendar").some(c => c.method === "PUT"));
+
+  // 남의 것은 안 올라간다
+  pages["p-other2"] = { parent: TEAM_DB, owner: "가영", priv: false };
+  notionRow = { ...notionRow, id: "p-other2", properties: { ...notionRow.properties,
+    "담당자": { select: { name: "가영" } } } };
+  seen = [];
+  await worker.fetch(new Request("https://w.dev/api/setdue", {
+    method: "POST", headers: { "Cf-Access-Jwt-Assertion": mint("sj@x.com"), "content-type": "application/json" },
+    body: JSON.stringify({ args: ["p-other2", "2026-09-30"] }),
+  }), calEnv).then(r => r.json());
+  await new Promise(r => setTimeout(r, 80));
+  ok("팀원 항목은 내 캘린더에 안 올라간다",
+     !calls("googleapis.com/calendar").some(c => c.method === "PUT"));
+
+  globalThis.fetch = prevFetch;
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);
