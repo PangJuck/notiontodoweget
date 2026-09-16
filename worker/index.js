@@ -1125,6 +1125,7 @@ export default {
      직접 쓴다. 그때는 위의 syncTodo가 불릴 길이 없으니, 여기서 주기적으로
      양쪽을 맞춘다. 자세한 것은 connectors/calendar.js의 reconcile. */
   async scheduled(event, env, ctx) {
+    console.log(`[calendar] 시계가 깨웠다 (${event && event.cron})`);
     const done = reconcile(env).catch((e) =>
       console.log(`[calendar] 주기 동기화 실패: ${e && e.message}`)
     );

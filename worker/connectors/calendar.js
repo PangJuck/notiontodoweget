@@ -34,7 +34,11 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const bare = (id) => String(id || "").replace(/-/g, "");
 
 export function getCalendar(env) {
-  if (!env.CALENDAR) return null;
+  if (!env.CALENDAR) {
+    // 조용히 끝내면 "설정을 안 읽은 것"과 "읽고 할 일이 없던 것"을 구분할 수 없다.
+    console.log("[calendar] CALENDAR 시크릿이 없다. 연동을 끈 채로 간다");
+    return null;
+  }
   let cfg;
   try {
     cfg = JSON.parse(env.CALENDAR);
@@ -77,8 +81,17 @@ async function run(env, cfg, kind, item) {
   // 물어야 하니(남의 항목이면 안 올린다), 한 번에 페이지를 읽어 채운다.
   const page = await notionPage(env, item.pageId);
   const got = fromPage(page);
-  if (!wanted(cfg, got)) return remove(cfg, pageId); // 남의 것이 되었으면 치운다
-  if (!got.due || got.done) return remove(cfg, pageId); // 날짜가 없거나 끝난 일
+  // 안 올리기로 한 경우가 제일 안 보인다. 실패가 아니라 판단이라 에러도 안 나고,
+  // 밖에서 보면 그냥 아무 일도 안 일어난 것처럼 보인다. 그래서 이유를 적는다.
+  if (!wanted(cfg, got)) {
+    console.log(`[calendar] 안 올림 — 내 것이 아니다 (담당자 "${got.owner}", 설정 owner "${cfg.owner}")`);
+    return remove(cfg, pageId); // 남의 것이 되었으면 치운다
+  }
+  if (!got.due || got.done) {
+    console.log(`[calendar] 안 올림 — ${got.done ? "완료된 일" : "마감일이 없다"}: ${got.title}`);
+    return remove(cfg, pageId);
+  }
+  console.log(`[calendar] 올림 — ${got.title} (${got.due})`);
   return upsert(cfg, pageId, got);
 }
 
@@ -266,7 +279,11 @@ const remove = (cfg, pageId) => dropEvent(cfg, eventId(pageId));
    일정은 여기서 사라지지 않는다. */
 export async function reconcile(env) {
   const cfg = getCalendar(env);
-  if (!cfg) return { ok: false, why: "CALENDAR 시크릿이 없다" };
+  if (!cfg) return { ok: false, why: "설정 없음" };
+
+  // owner는 비밀이 아니고, 여기가 어긋나면 팀 항목이 한 건도 안 올라간다.
+  // 인코딩이 깨져 들어온 적이 있어서 매번 그대로 찍는다.
+  console.log(`[calendar] 동기화 시작 · 캘린더 ${cfg.calendar_id} · owner "${cfg.owner || "(없음)"}"`);
 
   // 노션 쪽의 "있어야 할 모습"
   const want = new Map();
