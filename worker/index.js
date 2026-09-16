@@ -1109,7 +1109,10 @@ export default {
         if (!(e instanceof IdentityError)) throw e;
         return rpc(null, { error: { code: -32001, message: `${e.message} — ${e.hint}` } });
       }
-      return handleMcp(request, env, who);
+      const out = await handleMcp(request, env, who);
+      // 클로드가 붙을 때도 맞출 기회로 쓴다. 화면을 안 열어도 여기로는 온다.
+      maybeSync(env);
+      return out;
     }
 
     if (url.pathname.startsWith("/api/")) {
