@@ -10,7 +10,7 @@
 
 | 얼굴 | 코드 | 반영되는 방법 |
 |---|---|---|
-| 웹판 (브라우저) | `worker/`, `ui/` | `npx wrangler deploy` ← **성준의 컴퓨터에서** |
+| 웹판 (브라우저) | `worker/`, `ui/` | `npx.cmd wrangler deploy` ← **성준의 컴퓨터에서** |
 | 바탕화면 위젯 | `scripts/todo_widget.py`, `ui/` | `scripts/build_exe.ps1`로 재빌드 |
 | Claude 채팅 | `.claude/skills/scmtodo/SKILL.md` | **zip으로 묶어 claude.ai에 다시 올리기** |
 
@@ -24,14 +24,23 @@
 
 ```
 ## 반영하려면 (성준 차례)
-- 웹판:  cd worker && npx.cmd wrangler deploy
+- 웹판:  cd C:\Users\CONSTATN\Desktop\notiontodoweget\worker ; npx.cmd wrangler deploy
 - 위젯:  scripts\build_exe.ps1
 - 스킬:  아래 zip 올리기 → claude.ai 설정 > 스킬 > 옛 것 지우기
 - 컨텍스트: PROJECT_CONTEXT.md 통째로 claude.ai 프로젝트 지식에 다시 붙이기
 ```
 
-성준 환경은 Windows + PowerShell이고 `npx`가 실행정책에 막혀 **`npx.cmd`**로
-불러야 한다. 프로젝트는 `C:\Users\CONSTATN\Desktop\notiontodoweget`.
+### 성준에게 주는 명령은 PowerShell 문법으로 쓴다
+
+성준 환경은 Windows + **PowerShell 5.1**이다. 붙여넣을 명령을 줄 때:
+
+- **`&&`를 쓰지 않는다.** PowerShell 5.1은 모른다
+  (`'&&' 토큰은 이 버전에서 올바른 문 구분 기호가 아닙니다`). 줄을 나누거나
+  `;`를 쓴다. 이걸로 성준이 배포가 실패한 줄 알고 두 번 더 돌린 적이 있다
+- `npx`는 실행정책에 막힌다. **`npx.cmd`**로 부른다
+- `cd`는 **절대 경로**로 준다. 성준은 이미 그 폴더에 있는 경우가 많고, 상대
+  경로를 주면 `worker\worker`를 찾다가 실패한다
+- 프로젝트는 `C:\Users\CONSTATN\Desktop\notiontodoweget`
 
 ### claude.ai 쪽은 이렇게 적용한다 (매번 적어 준다)
 
@@ -66,7 +75,8 @@ claude.ai는 이 저장소를 **안 본다.** 파일을 사람이 옮겨야 한�
 - **개인 DB 항목은 주간 보고에도 팀원에게도 절대 안 보인다.** 팀 DB에 올라간
   것은 팀원끼리 서로 다 본다
 - 웹판 URL 공유나 Cloudflare Access 설정은 자체 판단으로 안내하지 않는다
-- 신원·권한 쪽을 고쳤으면 배포 전에 `cd worker && npm test`를 돌린다
+- 신원·권한 쪽을 고쳤으면 배포 전에 `worker/`에서 `npm test`를 돌린다
+  (이건 Claude가 이 리눅스 샌드박스에서 직접 돌린다. 성준에게 시키지 않는다)
 - **PowerShell로 한글을 파이프로 넘기면 `?`로 뭉개진다.** 시크릿에 한글이
   들어가면 `\uXXXX`로 escape해 ASCII로 만들어 넘긴다 (이걸로 한 시간 날렸다)
 
