@@ -389,6 +389,20 @@ npx wrangler deploy
 npx wrangler secret put SYNC_TOKEN     # 32바이트 이상 난수
 ```
 
+Windows(PowerShell)에서는 **프롬프트에 붙여넣지 말고 파이프로 넣는다.** 그
+프롬프트가 `Ctrl+V`를 제대로 안 받아서 값이 조용히 어긋난다(그러면 아래 확인이
+404가 된다). 변수에서 바로 보내면 두 곳에 같은 값이 간다:
+
+```powershell
+$t = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+$t | npx.cmd wrangler secret put SYNC_TOKEN
+$t | Set-Clipboard
+curl.exe -s -o NUL -w "%{http_code}`n" "https://todo-widget-web.<계정>.workers.dev/sync/$t"
+```
+
+`200`이면 열린 것이다. `404`는 시크릿이 없거나 값이 다른 것, `302`는 Access가
+아직 막고 있는 것이다(아래 Bypass 정책).
+
 주소: `https://todo-widget-web.<계정>.workers.dev/sync/<토큰>`
 
 **이 문은 Access 밖이다** — 밖에서 두드리는 것이 요점이라 로그인을 시킬 수가
@@ -399,8 +413,30 @@ npx wrangler secret put SYNC_TOKEN     # 32바이트 이상 난수
   할 일 제목도 건수도 보이지 않는다. 할 수 있는 일은 "맞춰라" 시키는 것뿐이다
 - 그래도 주소는 흘리지 않는다. 남이 계속 두드리면 노션·구글 호출이 는다
 
-Cloudflare Access가 이 호스트 전체를 막고 있다면, `/sync/*`에 **Bypass 정책**을
-하나 만들어야 한다(`/feed/*`와 같은 방식).
+### Access에 이 경로만 예외 두기 (필수)
+
+Access가 호스트 전체를 막고 있으면 `/sync`도 로그인 페이지로 돌려보낸다
+(`302`). 앱을 하나 더 만들어 그 경로만 뚫는다.
+
+Zero Trust → Access → 애플리케이션 → **새 애플리케이션 만들기** → 자체 호스팅:
+
+- 대상의 **공개 호스트 이름**: 하위 도메인 `todo-widget-web`,
+  도메인 `<계정>.workers.dev`, **경로 `sync`** (슬래시 없이)
+  - 도메인 드롭다운에 `workers.dev`가 안 뜨면 아래 **"사용자 지정 입력으로 전환"**
+  - `+ Workers 추가`가 아니라 **공개 호스트 이름**을 쓴다. 경로를 지정할 수 있는
+    쪽이 이것이다
+- Access 정책 → **새 정책 만들기**: 작업 **우회**(Bypass),
+  포함 → 선택기 **모든 사람**(`모든 Access Service Token`이 아니다)
+
+기존 앱은 손대지 않는다. 경로가 더 자세한 앱이 먼저 걸리므로 `/sync/...`만
+열리고 화면·`/api/*`·`/mcp`는 막힌 채로 있다. 앱 목록에 대상이
+`....workers.dev/sync`로 보이면 제대로 된 것이다.
+
+### 밖에서 두드리게 하기 (cron-job.org)
+
+무료 cron 서비스에 위 주소를 10분 간격으로 등록한다. 성공하면 Logs에
+`[calendar] 밖에서 두드려 깨웠다 (/sync)`가 10분마다 찍힌다 — 시계가 깬 것
+(`시계가 깨웠다`)과 화면 열다 돈 것과 이 줄로 구분된다.
 
 ### 아이폰
 
