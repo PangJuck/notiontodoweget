@@ -1,0 +1,86 @@
+# notiontodoweget — 작업 규칙
+
+배경과 구조는 `PROJECT_CONTEXT.md`에 있다. 이 문서는 **고칠 때마다 지켜야 하는
+것**만 담는다. 짧게 유지한다.
+
+## 얼굴이 셋이다 — 고치면 세 군데를 챙긴다
+
+같은 노션 DB를 세 군데가 본다. 코드는 한 군데를 고쳐도 **사람이 배포해야**
+나머지가 따라온다.
+
+| 얼굴 | 코드 | 반영되는 방법 |
+|---|---|---|
+| 웹판 (브라우저) | `worker/`, `ui/` | `npx wrangler deploy` ← **성준의 컴퓨터에서** |
+| 바탕화면 위젯 | `scripts/todo_widget.py`, `ui/` | `scripts/build_exe.ps1`로 재빌드 |
+| Claude 채팅 | `.claude/skills/scmtodo/SKILL.md` | **zip으로 묶어 claude.ai에 다시 올리기** |
+
+## 작업을 끝낼 때 반드시 인계한다
+
+성준은 **항상 잊는다.** 실제로 낡은 스킬 zip 때문에 없앤 업무 DB로 할 일이
+새어 들어간 일이 있었다 — 코드는 맞는데 사람 쪽이 안 따라간 것이다.
+
+그래서 무엇을 고쳤든, 답의 **맨 끝에** 이번 변경이 닿는 얼굴과 그 얼굴을
+따라오게 하는 명령을 적는다. 안 고친 얼굴은 적지 않는다.
+
+```
+## 반영하려면 (성준 차례)
+- 웹판:  cd worker && npx.cmd wrangler deploy
+- 위젯:  scripts\build_exe.ps1
+- 스킬:  아래 zip 올리기 → claude.ai 설정 > 스킬 > 옛 것 지우기
+- 컨텍스트: PROJECT_CONTEXT.md 통째로 claude.ai 프로젝트 지식에 다시 붙이기
+```
+
+성준 환경은 Windows + PowerShell이고 `npx`가 실행정책에 막혀 **`npx.cmd`**로
+불러야 한다. 프로젝트는 `C:\Users\CONSTATN\Desktop\notiontodoweget`.
+
+### claude.ai 쪽은 이렇게 적용한다 (매번 적어 준다)
+
+claude.ai는 이 저장소를 **안 본다.** 파일을 사람이 옮겨야 한다.
+
+**스킬** — `설정 > 기능 > 스킬`에서 zip을 올린다. 폴더명이 스킬 이름이 되므로
+`scmtodo/SKILL.md` 구조여야 한다. **올린 뒤 옛 스킬을 지운다** — 같은 일을 하는
+스킬이 둘이면 어느 쪽이 걸릴지 알 수 없다.
+
+**프로젝트 지식** — claude.ai 프로젝트(`Ulick To-do`)의 지식에
+`PROJECT_CONTEXT.md` 내용을 넣는다. 고쳤으면 옛 것을 지우고 새로 붙인다.
+
+스킬이나 `PROJECT_CONTEXT.md`를 고쳤으면 **zip을 직접 만들어 파일로
+건네준다**(`zip -r todo.zip scmtodo/` 형태). 말로 "다시 올려라"만 하면 안 올린다.
+
+## 화면 로직은 두 번 구현돼 있다
+
+`ui/`가 부르는 노션 호출 로직은 `scripts/todo_widget.py`(파이썬)와
+`worker/index.js`(JS)에 **따로** 있다. 한쪽만 고치면 위젯과 웹판이 다르게
+동작한다. 새 기능을 넣으면 세 군데를 같이 본다:
+
+1. `worker/index.js`의 `HANDLERS` (+ 팀원 Claude용 `MCP_TOOLS`/`runTool`)
+2. `scripts/todo_widget.py`의 `Api`
+3. `ui/adapter-web.js`와 `ui/adapter-widget.js`의 `METHODS` 목록
+   — 여기 빠지면 `can()`이 false가 되어 화면에서 단추가 조용히 사라진다
+
+## 지켜야 하는 것
+
+- **노션 토큰·구글 서비스 계정 키 값을 채팅에도 코드에도 커밋에도 남기지
+  않는다.** 넣는 자리는 늘 사람이 직접 채우게 안내한다 (`wrangler secret put`)
+- `.env`, `.dev.vars`, `guides/`는 `.gitignore`다. 커밋되려 하면 멈추고 확인한다
+- **개인 DB 항목은 주간 보고에도 팀원에게도 절대 안 보인다.** 팀 DB에 올라간
+  것은 팀원끼리 서로 다 본다
+- 웹판 URL 공유나 Cloudflare Access 설정은 자체 판단으로 안내하지 않는다
+- 신원·권한 쪽을 고쳤으면 배포 전에 `cd worker && npm test`를 돌린다
+- **PowerShell로 한글을 파이프로 넘기면 `?`로 뭉개진다.** 시크릿에 한글이
+  들어가면 `\uXXXX`로 escape해 ASCII로 만들어 넘긴다 (이걸로 한 시간 날렸다)
+
+## 알아두면 좋은 함정
+
+- Cloudflare **Cron 트리거가 등록은 되는데 안 깬다.** 대신 `/api/*` 요청 끝의
+  `maybeSync`(받침)와 `/sync/<SYNC_TOKEN>`(밖에서 두드리기)이 있다.
+  자세한 건 `worker/README.md`의 "시계가 도는지 확인하기"
+- 대시보드 Logs가 `0 Success / 0 Errors`로 통째로 비어 있으면 시계 얘기가
+  아니라 **배포가 안 된 것**이다. 웹 화면을 한 번 열고 fetch가 찍히는지 본다
+- `ui/app.js`는 `window.Backend` 하나만 알고 뒤가 위젯인지 웹인지 모른다.
+  OS 창에서만 의미 있는 조작은 `Backend.chrome`으로 가린다
+- pywebview + WebView2에서 창을 직접 건드리는 호출(`on_top`/`resize`/`hide`/
+  `destroy`)을 js_api 콜백 안에서 곧장 실행하면 위젯이 멈춘다. 반드시
+  `threading.Thread`로 넘기고 즉시 `{"ok": True}`를 돌려준다
+- 노션 REST API 버전은 `2022-06-28` 고정이다. 올리면 `databases/{id}/query`가
+  `data_sources/{id}/query`로 바뀌므로 위젯·워커를 같이 고쳐야 한다

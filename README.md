@@ -99,7 +99,7 @@ DB는 없앴다. 어디로 들어갈지 헷갈리는 것이 목록이 하나 더
 
 ## 구성
 
-- `.claude/skills/todo/SKILL.md` — 할 일을 노션에 4사분면으로 기록/조회/완료 처리하고 아침·퇴근 루틴을 돌리는 Claude 스킬
+- `.claude/skills/scmtodo/SKILL.md` — 할 일을 노션에 4사분면으로 기록/조회/완료 처리하고 아침·퇴근 루틴을 돌리는 Claude 스킬
 - `ui/` — 위젯과 웹판이 같이 쓰는 화면 코드. `app.css`, `body.html`, `app.js`가 전부이고
   뒤가 pywebview인지 브라우저인지는 `adapter-widget.js` / `adapter-web.js`가 갈라준다
 - `scripts/todo_widget.py` — 바탕화면 상주 위젯 본체 (pywebview + pystray). `ui/`를 읽어 화면을 조립하고, 파이썬은 노션 데이터만 준다

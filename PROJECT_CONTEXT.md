@@ -127,7 +127,8 @@ DB를 직접 질의하므로, 뷰를 고치거나 지워도 그쪽 동작은 바
 ## 시스템 구성 (파일 레이아웃)
 
 ```
-.claude/skills/todo/SKILL.md   Claude 채팅용 스킬. 노션 MCP(data_source_id) 사용
+.claude/skills/scmtodo/SKILL.md  Claude 채팅용 스킬(옛 이름 todo). 노션 MCP(data_source_id) 사용
+CLAUDE.md                       고칠 때마다 지켜야 하는 것. 세 얼굴에 반영하는 인계 규칙이 여기 있다
 ui/                             위젯과 웹판이 같이 쓰는 화면 코드
   app.css, body.html, app.js    화면 자체 (뒤가 위젯인지 웹인지 모른다)
   adapter-widget.js             window.Backend = pywebview.api 호출
@@ -136,11 +137,15 @@ scripts/
   todo_widget.py                위젯 본체. ui/를 읽어 화면 조립, 노션 REST API(2022-06-28) 호출
   build_exe.ps1                 PyInstaller로 TodoWidget.exe 빌드 (Windows에서 사람이 직접 실행)
   make_icon.py                  아이콘(app.png/app.small.png) → app.ico
+  make_member_guide.py          팀원용 guides/<이름>.md와 새 TEAM JSON을 만든다
   .env                          NOTION_TODO_TOKEN=... (gitignore, 커밋 안 됨)
 worker/
   index.js                      Cloudflare Worker. 노션 호출 로직을 JS로 재구현, 토큰을 시크릿으로 쥐고 /api/*를 대신 불러줌
   feed.js                       개인 할 일을 .ics로 내보낸다. 구글 캘린더가 /feed/<난수>.ics를 구독한다
-  connectors/calendar.js        구글 캘린더 API 커넥터 자리(팀·회의실용). 아직 안 붙어 있다
+  connectors/calendar.js        구글 캘린더에 실제로 일정을 쓴다(서비스 계정 JWT → 토큰 → events API).
+                                일정 id를 노션 page_id에서 만들어(todo<id>) 매핑 저장이 필요 없다.
+                                reconcile()이 매번 양쪽을 대조해 맞춘다(멱등)
+  dbs.js                        팀·개인 DB id를 한 자리에 모아 둔다
   test/worker.test.js           워커를 실제로 돌려 보는 시험. `cd worker && npm test`. 노션·토큰 없이 돈다
   wrangler.toml                 [assets] directory = "../ui" 로 화면 코드를 같이 서빙
   .dev.vars                     로컬 개발용 토큰 (gitignore, 커밋 안 됨)
@@ -203,7 +208,20 @@ Project 대화)에서 유지보수를 요청하면:
 
 ## 스킬 파일
 
-`.claude/skills/todo/SKILL.md`를 claude.ai에 올리려면 zip으로 묶어야 한다
-(`todo/SKILL.md` 구조로, 폴더명이 스킬 이름과 같아야 한다). **스킬 파일이
+`.claude/skills/scmtodo/SKILL.md`를 claude.ai에 올리려면 zip으로 묶어야 한다
+(`scmtodo/SKILL.md` 구조로, **폴더명이 스킬 이름과 같아야 한다**). **스킬 파일이
 바뀔 때마다 다시 압축해서 새로 올려야 한다** — Claude Code와 claude.ai 사이에
 스킬이 자동으로 동기화되지 않는다.
+
+**이름을 `todo`에서 `scmtodo`로 바꿨다.** 팀원이 Claude Code에서 쓰는
+`/scmtodo`(`~/.claude/commands/scmtodo.md`, 워커의 `/mcp`를 지난다)와 부르는
+말을 맞추기 위해서다. claude.ai에서 스킬은 **이름이 곧 부르는 말**이므로
+`scmtodo ...` 라고 치면 이 스킬이 걸린다. 길은 다르다 — 채팅 스킬은 노션 MCP로
+바로 가고 워커를 지나지 않는다.
+
+새 zip을 올린 뒤 **claude.ai에 남은 옛 `todo` 스킬은 지운다.** 둘을 같이 두면
+어느 쪽이 걸릴지 알 수 없고, 옛 것에는 없앤 업무 DB가 적혀 있다.
+
+**낡은 스킬이 실제로 사고를 냈다.** 업무 DB를 없앤 뒤에도 claude.ai에 옛 zip이
+남아 있어서, 채팅으로 넣은 할 일이 없앤 DB로 들어갔다. 코드는 맞는데 사람 쪽이
+안 따라온 것이다 — 스킬을 고쳤으면 zip을 반드시 다시 올린다.
