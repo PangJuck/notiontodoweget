@@ -855,22 +855,37 @@ function fillFilters(){
   if (person !== "all" && !PEOPLE.includes(person)) person = "all";
 }
 
+/* 어디로 들어가는지가 버튼에 적혀 있어야 한다.
+   고르는 칸의 첫 줄이 잠자코 골라져 있으면, 전체를 보다가 추가한 것이 죄다
+   그 첫 DB(업무)로 들어간다 — 누른 사람은 그걸 모른다. 그래서 전체를 보는
+   중에는 아무것도 골라 두지 않고, 고르기 전에는 추가가 안 되게 막는다. */
+function syncAddTarget(){
+  const tagSel = el("#a-tag");
+  const go = el("#addform .go");
+  const tag = tagSel.hidden ? (SOURCES[0] || "") : tagSel.value;
+  go.textContent = tag ? `${tag}에 추가` : "어디에 넣을지 고르세요";
+  go.classList.toggle("wait-pick", !tag);
+}
+
 function fillAddForm(){
   const tagSel = el("#a-tag");
   tagSel.hidden = SOURCES.length < 2; // 어차피 갈 곳이 하나뿐이면 고를 이유가 없다
-  if (tagSel.options.length !== SOURCES.length){
-    tagSel.innerHTML = SOURCES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
-  }
+  tagSel.innerHTML = `<option value="">어디에?</option>` +
+    SOURCES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
   const qSel = el("#a-q");
   qSel.innerHTML = `<option value="">사분면</option>` +
     Q.map(q => `<option value="${q.n}">${q.n} ${esc(q.name)}</option>`).join("");
+  syncAddTarget();
 }
 
 function openAdd(on){
   const f = el("#addform");
   f.hidden = !on;
   if (on){
-    if (source !== "all") el("#a-tag").value = source;
+    // 보고 있던 곳으로 넣는 것이 자연스럽다. 전체를 보고 있었으면 비워 둔다 —
+    // 그 자리에서 고르게 하는 편이, 모르고 엉뚱한 DB에 쌓는 것보다 낫다.
+    el("#a-tag").value = source === "all" ? "" : source;
+    syncAddTarget();
     el("#a-title").focus();
   } else {
     f.reset();
@@ -878,13 +893,21 @@ function openAdd(on){
   if (tab === "matrix") requestAnimationFrame(fitCells);
 }
 
+el("#a-tag").addEventListener("change", syncAddTarget);
 el("#add").addEventListener("click", () => openAdd(el("#addform").hidden));
 el("#a-cancel").addEventListener("click", () => openAdd(false));
 el("#addform").addEventListener("submit", async (e) => {
   e.preventDefault();
   const title = el("#a-title").value.trim();
   if (!title) return;
-  const tag = el("#a-tag").value, q = el("#a-q").value, due = el("#a-due").value;
+  const tagSel = el("#a-tag");
+  const tag = tagSel.hidden ? SOURCES[0] : tagSel.value;
+  if (!tag){
+    toast("어디에 넣을지 골라주세요.", "업무 · 개인 · 팀 중에서요.");
+    tagSel.focus();
+    return;
+  }
+  const q = el("#a-q").value, due = el("#a-due").value;
   openAdd(false);
   tab = "matrix";
   // 새 항목의 노션 id는 서버가 정한다. 화면에 미리 그리지 않고 바로 다시 읽는다
