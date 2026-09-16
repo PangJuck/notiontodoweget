@@ -107,8 +107,11 @@ console.log("── 관리자(성준)");
 {
   const { calls } = await api("sj@x.com", "data");
   const q = queries(calls);
-  ok("세 DB를 다 묻는다", q.length === 3, q.map(dbOf).join(","));
+  ok("두 DB만 묻는다 — 개인과 팀", q.length === 2, q.map(dbOf).join(","));
   ok("개인 DB가 그 안에 있다(성준만 본다)", q.some(c => dbOf(c) === PERSONAL_DB));
+  ok("팀 DB도 본다", q.some(c => dbOf(c) === TEAM_DB));
+  ok("없앤 업무 DB는 아무도 묻지 않는다",
+     !q.some(c => dbOf(c) === "0e928040351d4fdfae49f77e67e914e6"));
 }
 {
   pages["p-open"] = { parent: TEAM_DB, owner: "창준", priv: false };

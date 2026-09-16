@@ -142,11 +142,17 @@ def ensure_single_instance():
 
 ensure_single_instance()
 
+# 회사 일은 팀 DB에 모여 있다. 위젯은 성준 컴퓨터의 창이므로 그중 성준 것만 본다
+# (웹판처럼 로그인이 없어서, 누구 것을 볼지 여기서 이름으로 못박는다).
+TEAM_DB = "6f9008aa63f249109b6ed29a374b529d"
+ME = "성준"
 SOURCES = [
-    ("업무", "0e928040351d4fdfae49f77e67e914e6"),
+    ("팀", TEAM_DB),
     ("개인", "1730d225784340f88e15f9af9d51ea78"),
 ]
 SOURCE_IDS = dict(SOURCES)
+# 담당자 조건을 걸 DB. 개인 DB에는 그 속성이 아예 없다.
+OWNED = {TEAM_DB}
 
 # 4사분면. 노션 `우선순위` 옵션은 앞 숫자 1~4로만 매칭한다.
 # 숫자 뒤 글자는 노션에서 마음대로 바꿔도 위젯이 따라간다.
@@ -222,7 +228,7 @@ def option_name(db_id, num):
 def quad_defs():
     """칸 제목을 만든다. 노션에 들어 있는 이름을 먼저 쓴다.
 
-    두 DB가 서로 다른 이름을 쓰고 있으면 업무 쪽을 따른다.
+    두 DB가 서로 다른 이름을 쓰고 있으면 앞(팀) 쪽을 따른다.
     양쪽을 다 보여줄 자리가 없고, 다르게 쓰는 것 자체가 실수이기 때문이다.
     """
     out = []
@@ -253,9 +259,16 @@ def call(url, payload, method):
         return json.load(res)
 
 
+def owner_filter(db_id, base):
+    """팀 DB는 담당자가 성준인 것만. 개인 DB는 조건을 걸 속성 자체가 없다."""
+    if db_id not in OWNED:
+        return base
+    return {"and": [base, {"property": "담당자", "select": {"equals": ME}}]}
+
+
 def fetch_rows(db_id):
     payload = {
-        "filter": {"property": "완료", "checkbox": {"equals": False}},
+        "filter": owner_filter(db_id, {"property": "완료", "checkbox": {"equals": False}}),
         "page_size": 100,
     }
     return call(f"https://api.notion.com/v1/databases/{db_id}/query", payload, "POST")["results"]
@@ -273,7 +286,7 @@ def fetch_done_rows(db_id, since=""):
     cursor = None
     for _ in range(LOG_MAX_PAGES):
         payload = {
-            "filter": {"property": "완료", "checkbox": {"equals": True}},
+            "filter": owner_filter(db_id, {"property": "완료", "checkbox": {"equals": True}}),
             "sorts": [{"property": "완료일", "direction": "descending"}],
             "page_size": 100,
         }
@@ -335,6 +348,9 @@ def create(tag, title, due, quadrant):
         "할 일": {"title": [{"text": {"content": title[:2000]}}]},
         "완료": {"checkbox": False},
     }
+    # 팀 DB는 담당자가 비면 웹판의 사람 필터에서 사라진다. 위젯에서 넣는 것은 성준 것이다.
+    if SOURCE_IDS[tag] in OWNED:
+        properties["담당자"] = {"select": {"name": ME}}
     if due:
         properties["마감일"] = {"date": {"start": due}}
     if quadrant:
@@ -442,7 +458,7 @@ def describe(exc):
         if exc.code == 404:
             return (
                 "DB를 찾지 못했다",
-                "업무/개인 DB 페이지에서 ... > 연결로 Integration을 추가했는지 확인한다.",
+                "팀/개인 DB 페이지에서 ... > 연결로 Integration을 추가했는지 확인한다.",
             )
         return f"노션이 {exc.code}를 반환했다", "잠시 뒤 새로고침한다."
     return "노션에 연결하지 못했다", "네트워크를 확인하고 새로고침한다."

@@ -20,17 +20,18 @@
 import { syncTodo } from "./connectors/calendar.js";
 import { buildIcs } from "./feed.js";
 
-const PERSONAL = [
-  ["업무", "0e928040351d4fdfae49f77e67e914e6"],
-  ["개인", "1730d225784340f88e15f9af9d51ea78"],
-];
-// 구글 캘린더에 구독시키는 .ics로 나가는 DB. 개인 것 하나뿐이다 — worker/feed.js 참고.
-const FEED_DB = PERSONAL[1][1];
+// 성준 개인 DB. 팀원에게는 이 문이 열리지 않는다.
+const PERSONAL_DB = "1730d225784340f88e15f9af9d51ea78";
+// 회사 일은 전부 팀 DB로 모았다. 업무 DB(0e928040...)는 더 이상 쓰지 않는다 —
+// 목록이 셋이면 넣을 때마다 어디로 가는지 헷갈리고, 실제로 헷갈렸다.
+const PERSONAL = [["개인", PERSONAL_DB]];
+// 구글 캘린더에 구독시키는 .ics로 나가는 DB — worker/feed.js 참고.
+const FEED_DB = PERSONAL_DB;
 // 팀 전용 DB. 팀원에게 노션 자체는 공유하지 않는다 — 워커만 Integration으로 읽는다.
 const TEAM_DB = "6f9008aa63f249109b6ed29a374b529d";
 
 /* ── 신원 ──────────────────────────────
-   TEAM 시크릿이 없으면 지금까지와 똑같이 동작한다(성준 혼자, 업무+개인).
+   TEAM 시크릿이 없으면 성준 혼자 쓰는 상태가 된다(개인 DB만).
    있으면 팀 모드로 바뀌고, 그때부터는 Access가 서명한 토큰이 유일한 신원
    근거가 된다. 형식은:
 
@@ -336,8 +337,8 @@ function parseRow(row, tag, fallbackOwner) {
   return {
     id: row.id,
     tag,
-    // 업무/개인 DB에는 담당자 속성이 없다. 성준 본인의 것이므로 이름을 채워
-    // 넣어, 관리자 화면의 사람 필터가 세 DB에 똑같이 걸리게 한다.
+    // 개인 DB에는 담당자 속성이 없다. 성준 본인의 것이므로 이름을 채워
+    // 넣어, 관리자 화면의 사람 필터가 두 DB에 똑같이 걸리게 한다.
     owner: p["담당자"]?.select?.name || fallbackOwner || "",
     title: plain(p["할 일"], "title") || "(제목 없음)",
     memo: plain(p["메모"], "rich_text"),
