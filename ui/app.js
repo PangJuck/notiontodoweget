@@ -254,7 +254,8 @@ function row(it, compact, pinned, rank){
   const memo = it.memo ? `<span class="memo">${esc(it.memo)}</span>` : "";
   const wait = it.wait ? `<span class="wait">대기</span>` : "";
   const dt = it.due ? `<span class="dt${over?" over":""}">${md(it.due)}</span>` : "";
-  const num = rank ? `<span class="rank">${rank}</span>` : "";
+  const num = rank
+    ? `<span class="rank" title="끌어서 순서 바꾸기">${rank}</span>` : "";
   // 오늘의 3에 고정된 항목은 위 고정칸과 사분면 칸에 동시에 나온다.
   // 편집창을 양쪽 다 띄우면 data-id가 겹쳐 저장이 엉뚱한 쪽에서 읽힌다.
   // 고정칸 쪽은 편집창을 띄우지 않는다 — 칸 쪽에서 열린다.
@@ -745,14 +746,24 @@ function wireDrag(grid){
     const qn = +ul.closest(".cell").dataset.q;
     ul.querySelectorAll(".item").forEach(li => {
       if (li.querySelector(".memo-edit")) return; // 메모 입력 중인 항목은 텍스트 선택과 겹치니 뺀다
-      li.draggable = true;
+      const grip = li.querySelector(".rank");
+      if (!grip) return;
+      /* 줄 전체를 draggable로 두면 브라우저가 그 안의 **글자 선택을 드래그로
+         가로챈다** — 메모를 긁어서 복사할 수가 없었다. 그래서 끄는 자리를
+         앞의 순번 숫자 하나로 좁힌다. 평소에는 draggable이 꺼져 있다가
+         손잡이를 누르는 순간에만 켜진다(브라우저는 mousedown 시점의 값을
+         본다). 손을 떼면 다시 끈다. */
+      const off = () => { li.draggable = false; };
+      grip.addEventListener("pointerdown", () => { li.draggable = true; });
+      li.addEventListener("pointerup", off);
+      li.addEventListener("pointercancel", off);
       li.addEventListener("dragstart", e => {
         e.dataTransfer.setData("text/item", li.dataset.id);
         e.dataTransfer.effectAllowed = "move";
         e.stopPropagation(); // 칸 드래그와 겹치지 않게
         li.classList.add("dragging");
       });
-      li.addEventListener("dragend", () => { li.classList.remove("dragging"); clearDropMark(grid); });
+      li.addEventListener("dragend", () => { off(); li.classList.remove("dragging"); clearDropMark(grid); });
     });
     ul.addEventListener("dragover", e => {
       if (!e.dataTransfer.types.includes("text/item")) return;
