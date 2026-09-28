@@ -308,6 +308,37 @@ npx wrangler deploy
 {"provider":"google","client_email":"...","private_key":"...","calendar_id":"회사용...","personal_calendar_id":"개인용...","owner":"성준"}
 ```
 
+### 개인 캘린더만 나중에 갈아끼우기
+
+`personal_calendar_id`를 바꾸자고 `CALENDAR` 시크릿을 통째로 다시 넣으면 **구글
+개인키를 사람 손으로 옮기게 된다.** 그게 이 프로젝트에서 제일 자주 어긋난
+자리다(대화형 프롬프트 붙여넣기). 그래서 주소만 따로 넣는 길을 뒀다.
+
+```bash
+npx wrangler secret put PERSONAL_CALENDAR_ID
+# 프롬프트에 캘린더 주소 하나만. 예: ghaos009@gmail.com
+```
+
+Windows(PowerShell)에서는 역시 붙여넣지 말고 파이프로 넣는다:
+
+```powershell
+"ghaos009@gmail.com" | npx.cmd wrangler secret put PERSONAL_CALENDAR_ID
+```
+
+- 이 시크릿이 있으면 `CALENDAR` 안의 `personal_calendar_id`를 **덮어쓴다**
+- **안 넣으면 예전과 똑같이 돈다.** `CALENDAR` 안의 값을 그대로 쓴다
+- **빈 문자열**을 넣으면 나누기를 끄고 회사 캘린더 하나로 합친다
+- 배포는 필요 없다. 시크릿은 넣는 즉시 적용된다
+- 어느 캘린더로 가는지는 로그에 찍힌다:
+  `[calendar] 개인 캘린더는 PERSONAL_CALENDAR_ID를 따른다: ...`
+
+**그 캘린더를 서비스 계정에 먼저 공유해야 한다.** 개인 gmail의 기본 캘린더도
+된다 — 구글 캘린더 → 그 캘린더 설정 및 공유 → 특정 사용자와 공유 →
+`client_email` 주소를 넣고 권한 **"일정 변경"**.
+
+옮긴 뒤 **옛 캘린더에 남은 `todo...` 일정은 저절로 안 지워진다.** 맞추기가 더
+이상 그 캘린더를 안 훑기 때문이다. 남아 있으면 손으로 지운다.
+
 - `personal_calendar_id`를 안 적으면 예전처럼 한 캘린더에 다 들어간다
 - 대조는 캘린더마다 따로 한다. 그래서 항목이 개인 DB에서 팀 DB로 옮겨 가면
   다음 차례에 옛 캘린더에서 저절로 사라진다

@@ -60,6 +60,18 @@ export function getCalendar(env) {
       return null;
     }
   }
+
+  /* 개인 캘린더만 따로 갈아끼울 수 있게 둔다.
+     CALENDAR 시크릿 안에는 구글 개인키가 들어 있다. 캘린더 주소 하나 바꾸자고
+     그걸 통째로 다시 넣게 하면, 사람이 개인키를 손으로 옮기게 된다 — 이 프로젝트에서
+     제일 자주 어긋난 자리가 거기다(대화형 프롬프트 붙여넣기). 주소만 넣게 한다.
+
+     빈 문자열을 넣으면 나누기를 끄고 한 캘린더에 다 넣는다. 시크릿이 아예 없으면
+     CALENDAR 안의 값을 그대로 쓴다 — 즉 안 넣으면 예전과 똑같이 돈다. */
+  if (typeof env.PERSONAL_CALENDAR_ID === "string") {
+    cfg.personal_calendar_id = env.PERSONAL_CALENDAR_ID.trim();
+    console.log(`[calendar] 개인 캘린더는 PERSONAL_CALENDAR_ID를 따른다: ${cfg.personal_calendar_id || "(없음, 한 캘린더로 합침)"}`);
+  }
   return cfg;
 }
 

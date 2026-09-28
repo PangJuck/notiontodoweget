@@ -600,6 +600,73 @@ console.log("── 날짜는 한국 시간 기준 (새벽에 완료해도 오�
   }
 }
 
+console.log("── 개인 캘린더만 따로 갈아끼우기 (PERSONAL_CALENDAR_ID)");
+{
+  const pem = "-----BEGIN PRIVATE KEY-----\n" +
+    privateKey.export({ type: "pkcs8", format: "der" }).toString("base64").replace(/(.{64})/g, "$1\n") +
+    "\n-----END PRIVATE KEY-----\n";
+  const TEAM_CAL = "work@group.calendar.google.com";
+  const OLD_MINE = "old-mine@group.calendar.google.com";
+  const NEW_MINE = "ghaos009@gmail.com";
+  const base = JSON.stringify({
+    provider: "google", client_email: "bot@x.iam.gserviceaccount.com", private_key: pem,
+    calendar_id: TEAM_CAL, personal_calendar_id: OLD_MINE, owner: "성준" });
+
+  const mine = (id, title, due) => ({
+    id, parent: { database_id: PERSONAL_DB },
+    properties: {
+      "할 일": { title: [{ plain_text: title }] },
+      "마감일": { date: { start: due } },
+      "완료": { checkbox: false },
+    },
+  });
+
+  const run = async (extra) => {
+    const seen = [];
+    const prevFetch = globalThis.fetch;
+    const jsonRes = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json" } });
+    globalThis.fetch = async (u, init = {}) => {
+      const str = String(u), m = init.method || "GET";
+      seen.push({ url: str, method: m });
+      if (str.includes("oauth2.googleapis.com/token")) return jsonRes({ access_token: "tok", expires_in: 3600 });
+      if (str.includes("googleapis.com/calendar")) return m === "GET" ? jsonRes({ items: [] }) : jsonRes({ id: "e" });
+      if (str.includes("/query")) {
+        const db = str.match(/databases\/([^/]+)\/query/)[1];
+        return jsonRes({ results: db === PERSONAL_DB ? [mine("aaaa1111", "치과 예약", "2026-09-25")] : [], has_more: false });
+      }
+      return prevFetch(u, init);
+    };
+    await worker.scheduled({}, { ...env, CALENDAR: base, ...extra }, { waitUntil: () => {} });
+    globalThis.fetch = prevFetch;
+    return seen;
+  };
+
+  // 시크릿을 안 넣으면 예전 그대로여야 한다. 이걸 깨면 지금 돌고 있는 것이 멈춘다.
+  let seen = await run({});
+  ok("PERSONAL_CALENDAR_ID가 없으면 CALENDAR 안의 값을 쓴다",
+     seen.some(c => c.method === "PUT" && c.url.includes(encodeURIComponent(OLD_MINE))));
+
+  // 넣으면 개인 것만 그쪽으로 간다
+  seen = await run({ PERSONAL_CALENDAR_ID: NEW_MINE });
+  ok("넣으면 개인 할 일이 그 캘린더로 간다",
+     seen.some(c => c.method === "PUT" && c.url.includes(encodeURIComponent(NEW_MINE))));
+  ok("옛 개인 캘린더는 더 이상 건드리지 않는다",
+     !seen.some(c => c.url.includes(encodeURIComponent(OLD_MINE))));
+  ok("회사 캘린더는 그대로다",
+     seen.some(c => c.url.includes(encodeURIComponent(TEAM_CAL))));
+
+  // 앞뒤 공백이 붙어 와도 주소로 쓰인다 (파이프로 넘기면 붙기 쉽다)
+  seen = await run({ PERSONAL_CALENDAR_ID: `  ${NEW_MINE}\n` });
+  ok("앞뒤 공백은 떼고 쓴다",
+     seen.some(c => c.method === "PUT" && c.url.includes(encodeURIComponent(NEW_MINE))));
+
+  // 빈 문자열이면 나누기를 끄고 한 캘린더로 합친다
+  seen = await run({ PERSONAL_CALENDAR_ID: "" });
+  ok("빈 값이면 회사 캘린더 하나로 합친다",
+     seen.some(c => c.method === "PUT" && c.url.includes(encodeURIComponent(TEAM_CAL))) &&
+     !seen.some(c => c.url.includes(encodeURIComponent(OLD_MINE))));
+}
+
 console.log("── 끝낸 일에 메모가 같이 온다 (주간보고의 '결과' 칸 재료)");
 {
   const prev = globalThis.fetch;
