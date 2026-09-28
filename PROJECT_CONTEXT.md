@@ -4,7 +4,7 @@
 PangJuck, 이 저장소의 소유자)의 개인 할 일 관리 시스템에 대해, 다른 세션(특히
 파일시스템·git 접근이 없는 웹 채팅)이 맥락 없이도 도와줄 수 있게 적어둔다.
 
-> **컨텍스트 v3** (2026-09-16, 커밋 `b4aa748`) — 성준이 "지금 컨텍스트 버전 뭐야?"라고
+> **컨텍스트 v4** (2026-09-28, 커밋 `edf7aca`) — 성준이 "지금 컨텍스트 버전 뭐야?"라고
 > 물으면 이 줄을 그대로 답한다. 저장소의 것과 다르면 프로젝트 지식에 붙어 있는
 > 것이 낡았다는 뜻이다.
 
@@ -165,6 +165,12 @@ scripts/
   build_exe.ps1                 PyInstaller로 TodoWidget.exe 빌드 (Windows에서 사람이 직접 실행)
   make_icon.py                  아이콘(app.png/app.small.png) → app.ico
   make_member_guide.py          팀원용 guides/<이름>.md와 새 TEAM JSON을 만든다
+docs/
+  scmweekly-연동-안내.md         팀원 주간보고 스킬 쪽에 건네는 참고서.
+                                Ulick To-do가 무엇을 내주는지(도구, 돌려주는 모양,
+                                그리고 "없는 것")를 적어 둔 경계면 문서
+  구글-캘린더-연동-계획.md        설계 당시 기록
+  울릭 할 일 - 사용 가이드.md      팀원에게 나눠준 사용법
   .env                          NOTION_TODO_TOKEN=... (gitignore, 커밋 안 됨)
 worker/
   index.js                      Cloudflare Worker. 노션 호출 로직을 JS로 재구현, 토큰을 시크릿으로 쥐고 /api/*를 대신 불러줌
@@ -185,18 +191,34 @@ README.md, HANDOFF.md           설계 배경. HANDOFF.md는 최초 설계 당�
 - Cloudflare Access로 잠겨 있다 — `ghaos009@naver.com` 계정으로 로그인해야만 접속됨
 - 노션 토큰은 `wrangler secret put NOTION_TOKEN`으로 Cloudflare에 저장돼 있고, 코드
   어디에도 값 자체는 없다
-- 지금 들어 있는 시크릿은 넷이다 — `NOTION_TOKEN`, `TEAM`, `CALENDAR`,
-  `SYNC_TOKEN`. (`ICS_TOKEN`은 없다 = .ics 길은 꺼져 있다)
+- 지금 들어 있는 시크릿은 다섯이다 — `NOTION_TOKEN`, `TEAM`, `CALENDAR`,
+  `SYNC_TOKEN`, `PERSONAL_CALENDAR_ID`. (`ICS_TOKEN`은 없다 = .ics 길은 꺼져 있다)
 - wrangler는 **4.x**를 쓴다. 3.x는 Cloudflare가 "critical errors" 경고를 붙인
   구버전이었다
 
 ## 구글 캘린더 맞추기 — 시계가 안 깨서 길을 셋 뒀다
 
-노션이 원본이고 구글은 따라온다(한 방향). 개인 DB는 `personal_calendar_id`,
-팀 DB의 성준 것은 `calendar_id`로 나눠 보낸다 — 구글에서 개인 쪽만 체크를 꺼
-둘 수 있다. 일정 id를 노션 page_id에서 만들어(`todo<id>`) 매핑을 저장할 곳이
-없고, `reconcile()`이 매번 양쪽을 통째로 대조해 맞추므로 몇 번 돌려도 결과가
-같다(멱등).
+노션이 원본이고 구글은 따라온다(한 방향). 개인 DB와 팀 DB를 **다른 캘린더로**
+나눠 보낸다 — 구글에서 개인 쪽만 체크를 꺼 둘 수 있다.
+
+| 무엇이 | 어느 캘린더로 | 어디서 정해지나 |
+|---|---|---|
+| 개인 DB 전부 | 성준의 **개인 gmail 기본 캘린더**(`ghaos009@gmail.com`) | `PERSONAL_CALENDAR_ID` 시크릿 |
+| 팀 DB 중 `담당자`가 성준인 것 | `회사 to-do 동기화용` | `CALENDAR` 안의 `calendar_id` |
+
+**개인 캘린더 주소는 `PERSONAL_CALENDAR_ID` 시크릿이 따로 쥔다.** `CALENDAR`
+안에도 `personal_calendar_id` 칸이 있지만, 시크릿이 있으면 그쪽을 덮어쓴다.
+이렇게 나눈 이유는 `CALENDAR` 안에 **구글 개인키**가 들어 있어서다 — 캘린더
+주소 하나 바꾸자고 그걸 통째로 다시 넣게 하면 사람이 개인키를 손으로 옮기게
+된다. 자세한 것은 `worker/README.md`의 "개인 캘린더만 나중에 갈아끼우기".
+
+전에는 개인 쪽도 전용 캘린더(`회사-개인-동기화용`)로 갔다. 회사 계정 안에
+개인 일정을 또 만들 이유가 없어서 성준이 원래 쓰던 캘린더로 옮겼다(2026-09-28).
+**옛 캘린더에 남은 `todo...` 일정은 저절로 안 지워진다** — 맞추기가 더 이상
+그 캘린더를 안 훑기 때문이다.
+
+일정 id는 노션 page_id에서 만든다(`todo<id>`). 그래서 매핑을 저장할 곳이 없고,
+`reconcile()`이 매번 양쪽을 통째로 대조해 맞추므로 몇 번 돌려도 결과가 같다(멱등).
 
 문제는 **클로드(MCP)와 위젯이 노션에 직접 써서 워커를 지나가지 않는 것**이다.
 그래서 맞추기를 부르는 길을 셋 뒀다:
