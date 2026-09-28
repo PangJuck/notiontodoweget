@@ -694,5 +694,41 @@ console.log("── 끝낸 일에 메모가 같이 온다 (주간보고의 '결�
   ok("끝낸 일에 메모가 실려 온다", row.memo === "결과물: 비교표 1장 / 오배송률 위주", row.memo);
 }
 
+console.log("── 클로드로 넣을 때 어디로 가는가 (add_todo)");
+{
+  const mcp = async (email, name, args) => {
+    calls = [];
+    const res = await worker.fetch(new Request("https://w.dev/mcp", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": mint(email), "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    }), env);
+    const j = await res.json();
+    return { text: j.result.content[0].text, isError: !!j.result.isError, calls };
+  };
+  const created = (cs) =>
+    cs.filter(c => c.method === "POST" && /\/v1\/pages$/.test(c.url)).map(c => c.body.parent.database_id);
+
+  // 성준은 팀·개인 둘 다 쓸 수 있다. 안 정하고 부르면 예전에는 조용히 개인으로 갔다.
+  const blank = await mcp("sj@x.com", "add_todo", { title: "쇼피 발송 이슈 점검 루틴 만들기" });
+  ok("넣을 곳을 안 정하면 아무 데도 안 넣는다", created(blank.calls).length === 0,
+     created(blank.calls).join(","));
+  ok("대신 어디로 넣을지 정하라고 되돌려준다", blank.isError && blank.text.includes("팀"), blank.text);
+
+  const team = await mcp("sj@x.com", "add_todo", { title: "쇼피 발송 이슈 점검 루틴 만들기", source: "팀" });
+  ok('source="팀"이면 팀 DB로 간다', created(team.calls).join(",") === TEAM_DB, created(team.calls).join(","));
+  ok("어디로 갔는지 말해 준다", team.text.includes("팀 ·"), team.text);
+
+  const mine = await mcp("sj@x.com", "add_todo", { title: "바지 찾으러 가기", source: "개인" });
+  ok('source="개인"이면 개인 DB로 간다', created(mine.calls).join(",") === PERSONAL_DB, created(mine.calls).join(","));
+  ok("개인으로 간 것도 말해 준다", mine.text.includes("개인 ·"), mine.text);
+
+  // 팀원은 넣을 곳이 하나뿐이라 물을 것이 없다. 예전처럼 그냥 들어가야 한다.
+  const ga = await mcp("ga@x.com", "add_todo", { title: "3PL 견적 받기" });
+  ok("팀원은 안 정해도 그대로 팀 DB로 들어간다",
+     !ga.isError && created(ga.calls).join(",") === TEAM_DB, ga.text);
+  ok("팀원에게 개인 DB는 여전히 없다", !created(ga.calls).includes(PERSONAL_DB));
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);

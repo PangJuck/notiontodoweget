@@ -785,7 +785,8 @@ const MCP_TOOLS = [
   },
   {
     name: "add_todo",
-    description: "할 일을 새로 넣는다. 담당자는 로그인한 본인으로 자동으로 정해진다.",
+    description:
+      "할 일을 새로 넣는다. 담당자는 로그인한 본인으로 자동으로 정해진다. 넣을 곳이 둘인 사람은 source를 꼭 정해야 한다 — 빼면 거절당한다.",
     inputSchema: {
       type: "object",
       properties: {
@@ -793,7 +794,11 @@ const MCP_TOOLS = [
         quadrant: { type: "integer", description: "사분면 1~4. 모르면 비운다", minimum: 1, maximum: 4 },
         due: { type: "string", description: "마감일 YYYY-MM-DD" },
         memo: { type: "string", description: "결과물 정의나 비고" },
-        source: { type: "string", description: "넣을 곳. 고를 수 있을 때만 쓴다" },
+        source: {
+          type: "string",
+          description:
+            '넣을 곳. "팀"(회사 일, 팀원이 서로 다 본다) 또는 "개인"(나만 본다). 두 곳을 쓸 수 있는 사람은 필수다. 회사 일이면 "팀"',
+        },
       },
       required: ["title"],
     },
@@ -1010,7 +1015,20 @@ async function runTool(env, who, name, args) {
       return r.ok ? formatDone(r.data) : r;
     }
     case "add_todo": {
-      const tag = args.source || sourcesFor(who)[0][0];
+      // 넣을 곳이 둘인 사람(성준)이 source를 빼먹으면 조용히 개인으로 갔다.
+      // 회사 일이 개인 DB에 쌓여도 아무도 몰랐다 — 이제는 정하고 오라고 돌려보낸다.
+      const tags = sourcesFor(who).map(([t]) => t);
+      let tag = args.source;
+      if (!tags.includes(tag)) {
+        if (tags.length > 1) {
+          return {
+            ok: false,
+            error: `넣을 곳을 정해야 한다: ${tags.join(" / ")}`,
+            hint: '회사 일이면 source="팀", 사적인 일이면 source="개인"으로 다시 부른다. 헷갈리면 "팀"이다.',
+          };
+        }
+        tag = tags[0];
+      }
       const r = await call("add", [args.title, tag, args.due, args.quadrant]);
       if (!r.ok) return r;
       // 메모는 만들면서 같이 넣을 수 없다. 방금 만든 줄을 찾아 붙인다.
@@ -1019,7 +1037,8 @@ async function runTool(env, who, name, args) {
         const made = back.ok && back.data.items.find((i) => i.title === String(args.title).trim());
         if (made) await call("setmemo", [made.id, args.memo]);
       }
-      return `넣었다: ${args.title}`;
+      // 어디로 갔는지 말한다. 안 말해서 개인으로 샌 것을 아무도 못 봤다.
+      return `넣었다: ${tag} · ${args.title}`;
     }
     case "complete_todo":   return unwrap(await call("done", [id]), "완료 처리했다.");
     case "uncomplete_todo": return unwrap(await call("undo", [id]), "완료를 되돌렸다.");
@@ -1058,7 +1077,7 @@ async function handleMcp(request, env, who) {
           protocolVersion:
             typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : MCP_PROTOCOL,
           capabilities: { tools: {}, prompts: {} },
-          serverInfo: { name: "ulick-todo", version: "1.5.0" },
+          serverInfo: { name: "ulick-todo", version: "1.6.0" },
           instructions: MCP_INSTRUCTIONS,
         },
       });
