@@ -367,6 +367,9 @@ function parseDone(row, tag, fallbackOwner) {
     tag,
     owner: p["담당자"]?.select?.name || fallbackOwner || "",
     title: plain(p["할 일"], "title") || "(제목 없음)",
+    // 메모에는 결과물 정의와 잘린 맥락이 들어간다. 주간보고의 "결과" 칸은
+    // 빈칸으로 마감할 수 없는 칸인데, 제목만 넘겨주면 그쪽에서 지어내게 된다.
+    memo: plain(p["메모"], "rich_text"),
     q: quadrantNum(select.name),
     done: raw ? raw.slice(0, 10) : "",
   };
@@ -772,7 +775,7 @@ const MCP_TOOLS = [
   },
   {
     name: "list_done",
-    description: "최근 일주일 동안 끝낸 일을 본다. 기본은 내 것이고, owner로 동료나 \"all\"을 볼 수 있다.",
+    description: "최근 일주일 동안 끝낸 일을 본다. 완료일, 제목, 담당자, 메모가 같이 온다. 기본은 내 것이고, owner로 동료나 \"all\"을 볼 수 있다.",
     inputSchema: {
       type: "object",
       properties: {
@@ -980,7 +983,13 @@ function formatItems(data) {
 
 function formatDone(rows) {
   if (!rows.length) return "최근 일주일 동안 끝낸 일이 없다.";
-  return rows.map((r) => `- ${r.done}  ${r.title}${r.owner ? `  (${r.owner})` : ""}`).join("\n");
+  const lines = [];
+  for (const r of rows) {
+    lines.push(`- ${r.done}  ${r.title}${r.owner ? `  (${r.owner})` : ""}`);
+    // 무엇이 끝났는지는 제목이 말하지만, 그래서 무엇이 바뀌었는지는 메모에만 있다.
+    if (r.memo) lines.push(`    메모: ${r.memo}`);
+  }
+  return lines.join("\n");
 }
 
 /* 도구 하나하나를 새로 짜지 않는다. 화면이 쓰는 것과 똑같은 핸들러를 부른다 —
@@ -1049,7 +1058,7 @@ async function handleMcp(request, env, who) {
           protocolVersion:
             typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : MCP_PROTOCOL,
           capabilities: { tools: {}, prompts: {} },
-          serverInfo: { name: "ulick-todo", version: "1.4.0" },
+          serverInfo: { name: "ulick-todo", version: "1.5.0" },
           instructions: MCP_INSTRUCTIONS,
         },
       });

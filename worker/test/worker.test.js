@@ -600,5 +600,32 @@ console.log("── 날짜는 한국 시간 기준 (새벽에 완료해도 오�
   }
 }
 
+console.log("── 끝낸 일에 메모가 같이 온다 (주간보고의 '결과' 칸 재료)");
+{
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/query")) {
+      return new Response(JSON.stringify({
+        results: [{
+          id: "p-done", parent: { database_id: TEAM_DB },
+          properties: {
+            "할 일": { title: [{ plain_text: "3PL 견적서 비교표 만들기" }] },
+            완료: { checkbox: true },
+            완료일: { date: { start: "2026-09-16" } },
+            담당자: { select: { name: "가영" } },
+            메모: { rich_text: [{ plain_text: "결과물: 비교표 1장 / 오배송률 위주" }] },
+          },
+        }],
+        has_more: false, next_cursor: null,
+      }), { headers: { "content-type": "application/json" } });
+    }
+    return prev(url, init);
+  };
+  const { out } = await api("ga@x.com", "log", ["", 30]);
+  globalThis.fetch = prev;
+  const row = (out.data || [])[0] || {};
+  ok("끝낸 일에 메모가 실려 온다", row.memo === "결과물: 비교표 1장 / 오배송률 위주", row.memo);
+}
+
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
 process.exit(fails ? 1 : 0);
