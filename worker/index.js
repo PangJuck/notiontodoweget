@@ -715,7 +715,19 @@ const HANDLERS = {
 
 const MCP_PROTOCOL = "2025-06-18";
 
-const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)으로 관리한다.
+/* 넣을 곳이 둘인 사람(성준)에게만 내려보낸다. 팀원은 팀 하나뿐이라
+   "골라라"는 말이 소음이고, 쓸데없이 "팀이요 개인이요?"를 되묻게 만든다. */
+const MCP_SOURCE_RULE = `넣을 곳(source)은 **항상 고른다.** 회사 업무는 "팀"(팀원이 서로 다 본다),
+개인 일(병원, 가족, 학업, 개인 재정, 개인 심부름)은 "개인"(나만 본다). 애매하면
+넣기 전에 묻는다. 여러 건을 한 번에 받으면 용도별로 나눠 각각 넣는다.
+안 고르고 부르면 서버가 거절한다.
+
+`;
+
+const mcpInstructions = (who) =>
+  MCP_INSTRUCTIONS_TEMPLATE(sourcesFor(who).length > 1 ? MCP_SOURCE_RULE : "");
+
+const MCP_INSTRUCTIONS_TEMPLATE = (sourceRule) => `이 사람의 할 일을 4사분면(중요 × 시급)으로 관리한다.
 이 도구 모음의 이름은 **Ulick To-do**다. 사람에게 말할 때는 이 이름을 쓴다.
 
 사분면 판단은 앞 숫자로 한다:
@@ -724,12 +736,7 @@ const MCP_INSTRUCTIONS = `이 사람의 할 일을 4사분면(중요 × 시급)�
 3 빠르게 쳐낼 (안중요+시급) — 잡무
 4 언젠가 (안중요+안시급)   — 지금은 아닌데 버리기 아까운 것
 
-넣을 곳(source)은 **항상 고른다.** 회사 업무는 "팀"(팀원이 서로 다 본다),
-개인 일(병원, 가족, 학업, 개인 재정, 개인 심부름)은 "개인"(나만 본다). 애매하면
-넣기 전에 묻는다. 여러 건을 한 번에 받으면 용도별로 나눠 각각 넣는다.
-안 고르고 부르면 서버가 거절한다 — 넣을 곳이 하나뿐인 사람에게는 해당 없다.
-
-할 일을 적을 때:
+${sourceRule}할 일을 적을 때:
 - 동사형으로, 무엇을 끝내면 되는지 알 수 있게 쓴다
   ("3PL 검토" 대신 "3PL 견적서 3곳 비교표 1장 만들기")
 - 기한이 말에 있으면 제목 앞에 남기고 마감일에도 넣는다
@@ -1083,7 +1090,7 @@ async function handleMcp(request, env, who) {
             typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : MCP_PROTOCOL,
           capabilities: { tools: {}, prompts: {} },
           serverInfo: { name: "ulick-todo", version: "1.6.0" },
-          instructions: MCP_INSTRUCTIONS,
+          instructions: mcpInstructions(who),
         },
       });
     case "ping":

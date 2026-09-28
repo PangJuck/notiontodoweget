@@ -723,6 +723,20 @@ console.log("── 클로드로 넣을 때 어디로 가는가 (add_todo)");
   ok('source="개인"이면 개인 DB로 간다', created(mine.calls).join(",") === PERSONAL_DB, created(mine.calls).join(","));
   ok("개인으로 간 것도 말해 준다", mine.text.includes("개인 ·"), mine.text);
 
+  // 지시문도 사람 따라 달라진다 — 팀원에게 "골라라"는 소음이다.
+  const hello = async (email) => {
+    const res = await worker.fetch(new Request("https://w.dev/mcp", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": mint(email), "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    }), env);
+    return (await res.json()).result.instructions;
+  };
+  ok("성준에게는 넣을 곳을 고르라고 알려준다", (await hello("sj@x.com")).includes("넣을 곳(source)"));
+  ok("팀원에게는 그 말을 안 내려보낸다", !(await hello("ga@x.com")).includes("넣을 곳(source)"));
+  ok("나머지 지시문은 둘 다 그대로 받는다",
+     (await hello("ga@x.com")).includes("Ulick To-do") && (await hello("sj@x.com")).includes("Ulick To-do"));
+
   // 팀원은 넣을 곳이 하나뿐이라 물을 것이 없다. 예전처럼 그냥 들어가야 한다.
   const ga = await mcp("ga@x.com", "add_todo", { title: "3PL 견적 받기" });
   ok("팀원은 안 정해도 그대로 팀 DB로 들어간다",
