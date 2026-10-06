@@ -740,7 +740,9 @@ ${sourceRule}할 일을 적을 때:
 - 동사형으로, 무엇을 끝내면 되는지 알 수 있게 쓴다
   ("3PL 검토" 대신 "3PL 견적서 3곳 비교표 1장 만들기")
 - 기한이 말에 있으면 제목 앞에 남기고 마감일에도 넣는다
-- 결과물이 무엇인지 분명하지 않으면 memo에 "결과물: ..."로 적는다
+- **메모는 세 줄을 넘기지 않는다.** 첫 줄은 "결과물: <무엇이 나오면 끝인가>".
+  나머지 두 줄은 없으면 일을 못 하는 것만 — 기한 조건, 막고 있는 것, 링크나 번호 하나.
+  배경·경위·추정·통계는 안 적는다. 그건 슬랙과 원래 문서에 이미 있다
 - 한 문장에 일이 여럿이면 쪼개서 각각 넣는다
 - 남의 회신을 기다리는 일은 set_waiting으로 표시한다
 - 오늘 반드시 끝낼 것은 set_today로 고정한다. 최대 3개다
@@ -805,7 +807,7 @@ const MCP_TOOLS = [
         title: { type: "string", description: "할 일. 동사형으로, 기한이 있으면 앞에 남긴다" },
         quadrant: { type: "integer", description: "사분면 1~4. 모르면 비운다", minimum: 1, maximum: 4 },
         due: { type: "string", description: "마감일 YYYY-MM-DD" },
-        memo: { type: "string", description: "결과물 정의나 비고" },
+        memo: { type: "string", description: "결과물 정의. 세 줄을 넘기지 않는다" },
         source: {
           type: "string",
           description:
@@ -845,7 +847,7 @@ const MCP_TOOLS = [
   },
   {
     name: "set_memo",
-    description: "메모(비고)를 쓰거나 고친다. 빈 문자열을 주면 지운다.",
+    description: "메모를 쓰거나 고친다. 세 줄을 넘기지 않는다. 빈 문자열을 주면 지운다.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, memo: { type: "string" } },
