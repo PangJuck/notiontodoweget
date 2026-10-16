@@ -1155,11 +1155,12 @@ async function readAsset(env, requestUrl, path) {
 }
 
 async function renderShell(env, requestUrl) {
-  const [css, body, adapter, app] = await Promise.all([
+  const [css, body, adapter, app, chars] = await Promise.all([
     readAsset(env, requestUrl, "/app.css"),
     readAsset(env, requestUrl, "/body.html"),
     readAsset(env, requestUrl, "/adapter-web.js"),
     readAsset(env, requestUrl, "/app.js"),
+    readAsset(env, requestUrl, "/characters.js"), // 캐릭터 보기는 웹판에만 싣는다
   ]);
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1175,6 +1176,9 @@ ${adapter}
 </script>
 <script>
 ${app}
+</script>
+<script>
+${chars}
 </script></body></html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
 }

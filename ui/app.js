@@ -880,6 +880,7 @@ window.complete = (id) => {
   items = items.filter(i => i.id !== id);
   if (logLoaded) doneItems.unshift({id:it.id, tag:it.tag, title:it.title, q:it.q, done:TODAY});
   render();
+  window.Chars?.react("done", it); // 캐릭터 보기(웹판 characters.js). 위젯에는 없다
   send("done", id).then(schedulePull);
 };
 window.undo = (id) => {
@@ -1078,7 +1079,7 @@ el("#addform").addEventListener("submit", async (e) => {
   tab = "matrix";
   // 새 항목의 노션 id는 서버가 정한다. 화면에 미리 그리지 않고 바로 다시 읽는다
   const r = await send("add", title, tag, due, q);
-  if (r && r.ok){ toast("추가했습니다."); pull(); }
+  if (r && r.ok){ toast("추가했습니다."); window.Chars?.react("add"); pull(); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
