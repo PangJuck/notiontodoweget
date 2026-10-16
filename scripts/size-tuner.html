@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>캐릭터 크기 맞추기</title>
+<style>
+body{margin:0;background:#141d27;color:#dce5ec;font:14px "Malgun Gothic",system-ui,sans-serif;padding:16px}
+h1{font-size:16px;margin:0 0 4px}
+p{color:#7b91a3;margin:0 0 14px}
+.stage{background:#1c2835;border:1px solid #2b3c4d;border-radius:10px;height:260px;position:relative;margin-bottom:14px;overflow:hidden}
+.floor{position:absolute;left:0;right:0;bottom:40px;border-top:2px solid #eab543}
+.row{position:absolute;left:0;right:0;bottom:40px;display:flex;justify-content:center;align-items:flex-end;gap:10px}
+.row.ov{gap:0}.row.ov .c{position:absolute;bottom:0;left:50%;transform:translateX(-50%);opacity:.35}
+.c{display:flex;flex-direction:column;align-items:center}
+.c img{display:block}
+.ctl{display:grid;grid-template-columns:90px 1fr 60px;gap:6px 10px;align-items:center;max-width:620px}
+input[type=range]{width:100%}
+.out{margin-top:14px;background:#1c2835;border:1px solid #2b3c4d;border-radius:8px;padding:10px;font:13px Consolas,monospace;white-space:pre}
+label.t{display:inline-flex;gap:6px;align-items:center;margin-bottom:10px}
+.pairs{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.pair{background:#1c2835;border:1px solid #2b3c4d;border-radius:10px;padding:10px 12px 8px}
+.pst{display:flex;align-items:flex-end;gap:4px;height:230px;border-bottom:2px solid #eab543}
+.pc{display:flex;align-items:flex-end}
+.cap{font-size:12px;color:#7b91a3;margin-top:6px;text-align:center;white-space:pre}
+button{background:#223141;color:#dce5ec;border:1px solid #2b3c4d;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+</style></head><body>
+<h1>캐릭터 크기 맞추기</h1>
+<p>막대를 움직여 비슷해 보일 때까지 맞춰 주세요. 화면 크기의 3배로 보여 줍니다. 다 맞추면 아래 숫자를 알려 주시면 됩니다.</p>
+<label class="t"><input type="checkbox" id="ov"> 한 자리에 겹쳐 보기</label>
+<button id="reset">처음 값으로</button>
+<div class="stage"><div class="floor"></div><div class="row" id="row"></div></div>
+<div class="ctl" id="ctl"></div>
+<h1 style="margin-top:18px">시사 옆에 세워 보기</h1>
+<div class="pairs" id="pairs"></div>
+<div class="out" id="out"></div>
+<script>
+const Z = 3, BASE = 40;
+const CH = [ // id, 이름, 지금 배율, 발 여백
+  ["shisa","시사",1.08,0.107],["hachi","하치와레",1.07,0.037],["rakko","랏코",1.0,0.035],["momonga","모몽가",0.97,0.035],
+  ["usagi","우사기",1.47,0.096],["chiikawa","치이카와",0.96,0],["jokebear","농담곰",1.01,0]];
+const val = Object.fromEntries(CH.map(c => [c[0], c[2]]));
+// 주소 뒤 #shisa=1.08,hachi=... 로 값을 이어받는다 (새로고침해도 맞춘 값이 남게)
+for (const kv of decodeURIComponent(location.hash.slice(1)).split(",")) { const [k, v] = kv.split("="); if (k in val && +v) val[k] = +v; }
+const row = document.getElementById("row"), ctl = document.getElementById("ctl"), out = document.getElementById("out");
+const pairs = document.getElementById("pairs");
+function sprite(id, foot, z){
+  const w = Math.round(BASE * val[id] * z);
+  const im = new Image(); im.src = `characters/${id}/eyes_open.png`; im.width = im.height = w;
+  im.style.marginBottom = `${-Math.round(w * foot)}px`; return im;
+}
+function drawPairs(){
+  pairs.innerHTML = "";
+  const s = CH[0];
+  for (const c of CH.slice(1)) {
+    const box = document.createElement("div"); box.className = "pair";
+    const st = document.createElement("div"); st.className = "pst";
+    const a = document.createElement("div"); a.className = "pc"; a.append(sprite(s[0], s[3], 3));
+    const b = document.createElement("div"); b.className = "pc"; b.append(sprite(c[0], c[3], 3));
+    st.append(a, b);
+    const cap = document.createElement("div"); cap.className = "cap"; cap.textContent = `시사 ${val.shisa.toFixed(2)}  vs  ${c[1]} ${val[c[0]].toFixed(2)}`;
+    // 짝마다 그 캐릭터 막대를 바로 아래에 둔다 (위 막대와 같은 값)
+    const r = document.createElement("input"); r.type = "range"; r.min = 0.6; r.max = 1.8; r.step = 0.01; r.value = val[c[0]];
+    r.addEventListener("input", () => { val[c[0]] = +r.value; sync(); draw(); });
+    box.append(st, cap, r); pairs.append(box);
+  }
+}
+function draw(){
+  history.replaceState(null, "", "#" + CH.map(([id]) => `${id}=${val[id].toFixed(2)}`).join(","));
+  drawPairs();
+  row.innerHTML = "";
+  // 창이 좁으면 위 줄 전체가 들어가게 줄인다 (비율은 그대로)
+  const fit = Math.min(Z, (row.clientWidth - 12 * CH.length) / CH.reduce((a, [id]) => a + BASE * val[id], 0));
+  for (const [id, name, , foot] of CH) {
+    const w = Math.round(BASE * val[id] * fit);
+    const c = document.createElement("div"); c.className = "c";
+    const im = new Image(); im.src = `characters/${id}/eyes_open.png`; im.width = im.height = w;
+    im.style.marginBottom = `${-Math.round(w * foot)}px`; im.title = name;
+    c.append(im); row.append(c);
+  }
+  out.textContent = CH.map(([id, name]) => `${name} ${val[id].toFixed(2)}`).join("\n");
+}
+for (const [id, name] of CH) {
+  const l = document.createElement("div"); l.textContent = name;
+  const r = document.createElement("input"); r.type = "range"; r.min = 0.6; r.max = 1.8; r.step = 0.01; r.value = val[id];
+  const n = document.createElement("div"); n.textContent = val[id].toFixed(2);
+  r.addEventListener("input", () => { val[id] = +r.value; sync(); draw(); });
+  r.dataset.id = id; ctl.append(l, r, n);
+}
+function sync(){ ctl.querySelectorAll("input").forEach(r => { r.value = val[r.dataset.id]; r.nextSibling.textContent = val[r.dataset.id].toFixed(2); }); }
+addEventListener("resize", draw);
+document.getElementById("ov").addEventListener("change", e => row.classList.toggle("ov", e.target.checked));
+document.getElementById("reset").addEventListener("click", () => {
+  for (const c of CH) val[c[0]] = c[2];
+  ctl.querySelectorAll("input").forEach(r => { r.value = val[r.dataset.id]; r.nextSibling.textContent = (+r.value).toFixed(2); });
+  draw();
+});
+draw();
+</script></body></html>

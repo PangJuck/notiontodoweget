@@ -54,6 +54,7 @@
       pics: { lunch: "lunch.jpg", evening: "evening.jpg", lots: "lots.jpg", none: ["gloom.jpg", "cannot.jpg"] } },
   ];
   const info = (id) => CHARS.find(c => c.id === id);
+  const BIGGEST = Math.max(...CHARS.map(c => c.scale || 1)); // 고르기 카드도 화면과 같은 키 비율로 (가장 큰 캐릭터가 카드를 꽉 채운다)
   const eyes = (id, closed) => `characters/${id}/${closed && info(id).blink ? "eyes_closed" : "eyes_open"}.png`;
   const flyFace = (id) => info(id).fly ? `characters/${id}/${info(id).fly}` : eyes(id, true);
   const KEY = "ulick.character";
@@ -92,7 +93,9 @@
 .char-acts{display:flex;gap:8px;justify-content:center;margin-top:12px}
 .char-go{padding:6px 16px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#141d27;
   font:600 12px var(--kr);cursor:pointer}
-.char-cards img{width:100%;max-width:72px;aspect-ratio:1;object-fit:contain;pointer-events:none}
+.char-cards .face{width:64px;height:64px;display:flex;align-items:flex-end;justify-content:center;pointer-events:none}
+.char-cards img{aspect-ratio:1;object-fit:contain;pointer-events:none}
+.char-pop .char-sub{margin:-8px 0 14px;font-size:12px;color:var(--muted)}
 .char-no{padding:6px 14px;border-radius:8px;background:none;border:1px solid var(--line);
   color:var(--muted);font:12px var(--kr);cursor:pointer}
 .char-no:hover{color:var(--text)}
@@ -1028,8 +1031,9 @@
     modal.className = "char-modal";
     modal.innerHTML = `<div class="char-pop" role="dialog" aria-modal="true" aria-labelledby="char-pop-h">
       <h2 id="char-pop-h">같이 일할 캐릭터 고르기</h2>
+      <p class="char-sub">여러 마리를 같이 고를 수 있어요. 카드를 눌러 고른 뒤 「같이 일하기」를 눌러 주세요.</p>
       <div class="char-cards">${CHARS.map(c =>
-        `<button type="button" data-v="${c.id}" aria-pressed="${now.includes(c.id)}"><img src="${eyes(c.id, false)}" alt="">${c.name}</button>`).join("")}</div>
+        `<button type="button" data-v="${c.id}" aria-pressed="${now.includes(c.id)}"><span class="face"><img src="${eyes(c.id, false)}" alt="" style="width:${Math.round(64 * (c.scale || 1) / BIGGEST)}px"></span>${c.name}</button>`).join("")}</div>
       <div class="char-acts"><button type="button" class="char-go">같이 일하기</button>
         <button type="button" class="char-no">필요 없어</button></div></div>`;
     modal.addEventListener("click", (e) => {
