@@ -118,6 +118,7 @@
 .char-bubble.on{opacity:1}
 .char-bubble img{display:block;width:170px;max-width:100%;border-radius:8px;margin:1px 0 6px}
 .char-bubble.shout{max-width:360px;padding:8px 12px;font:700 28px/1.25 var(--kr)}
+.char-bubble.sprint{max-width:300px;padding:8px 12px;font:700 18px/1.35 var(--kr)}
 .char-bubble.shout span{display:inline-block;animation:char-wobble .12s infinite alternate}
 @keyframes char-wobble{from{transform:translate(-1px,0) rotate(-1.5deg)}to{transform:translate(1px,-1px) rotate(1.5deg)}}`;
   document.head.appendChild(css);
@@ -139,7 +140,7 @@
     return { list, left, done, total: left.length + done, log };
   }
   // 대사 한 줄. 그 캐릭터에 없는 키는 응원 중 하나로
-  const line = (key, o = {}) => cur.lines[key] ? fill(cur.lines[key], o) : pick(cur.lines.cheer);
+  const line = (key, o = {}) => { const v = cur.lines[key]; return v ? fill(Array.isArray(v) ? pick(v) : v, o) : pick(cur.lines.cheer); };
   // 오늘의 3 상황 한 줄. {rest} 는 남은 일 제목, {left} 는 남은 개수
   function status(){
     const { list, left, done, total } = today3();
@@ -306,7 +307,7 @@
   }
   function say(text, kind = "", big = false){
     if (!cur || !text) return;
-    const me = cur, b = me.bubble, pic = kind && picOf(kind), ms = big ? 3500 : pic ? 7000 : 5000;
+    const me = cur, b = me.bubble, pic = kind && picOf(kind), ms = big === "sprint" ? 6000 : big ? 3500 : pic ? 7000 : 5000;
     pets.forEach(p => p !== me && p.bubble.classList.remove("on")); // 한 번에 한 마리만 말한다
     b.replaceChildren();
     if (pic) {
@@ -319,7 +320,8 @@
     const tx = document.createElement("span");
     tx.textContent = text;
     b.append(tx);
-    b.classList.toggle("shout", big);
+    b.classList.toggle("shout", big === true);
+    b.classList.toggle("sprint", big === "sprint");
     b.classList.add("on");
     me.side = null;
     clearTimeout(me.sayTimer);
@@ -743,6 +745,7 @@
     const z = cur.size, y = r.top, ends = [r.left + z / 2, r.right - z / 2];
     if (Math.abs(s.x - ends[1]) < Math.abs(s.x - ends[0])) ends.reverse();
     s.float = false;
+    if (cur.lines) say(pick(cur.lines.sprint || cur.lines.shout), "", "sprint"); // 질주할 때는 늘 외친다(다른 캐릭터 말을 끊고)
     hop({ key: "float", t: 0, dir: s.dir, x: ends[0], y }, 50, .6, () => dash([
       { x: ends[1], y, v: rand(300, 400), lean: 15 },
       { x: ends[0], y, v: rand(300, 400), lean: 15, rest: 200 },
