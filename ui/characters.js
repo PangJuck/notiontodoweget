@@ -128,9 +128,6 @@
   animation:char-slash .3s ease-out forwards}
 .char-slash i+i{animation-delay:.17s}
 @keyframes char-slash{0%{opacity:1;transform:rotate(var(--r)) scaleX(0)}55%{opacity:1;transform:rotate(var(--r)) scaleX(1)}100%{opacity:0;transform:rotate(var(--r)) scaleX(1.08)}}
-#body li.item.char-point{outline:2px solid var(--accent);outline-offset:1px;border-radius:6px;
-  background:color-mix(in srgb,var(--accent) 16%,transparent);animation:char-point 1s ease-in-out 3}
-@keyframes char-point{50%{background:color-mix(in srgb,var(--accent) 34%,transparent)}}
 .char-arrow{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
 .char-arrow svg{position:absolute;left:-34px;top:-12px;width:34px;height:24px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));
   animation:char-nudge .6s ease-in-out infinite alternate}
@@ -393,15 +390,13 @@
     return true;
   }
 
-  // 할 일 한 줄을 두고 말할 때: 그 줄 오른쪽 끝 빈 자리로 뿅 뛰어가 말하고, 그 줄에 4초 테두리를 친다.
+  // 할 일 한 줄을 두고 말할 때: 그 줄 오른쪽 끝 빈 자리로 뿅 뛰어가 말하고, 줄 끝을 화살표로 가리킨다(줄 강조는 피곤해서 뺐다).
   // 줄이 화면에 없거나 큰 동작 중이면 제자리에서 말만
   function pointAt(it, text, kind = ""){
     const li = it && [...document.querySelectorAll(`#body li.item[data-id="${CSS.escape(it.id)}"]`)]
       .find(e => { const r = e.getBoundingClientRect(); return r.height && r.top >= 0 && r.bottom <= innerHeight; });
     const s = cur.s, z = cur.size, me = cur;
     if (li) {
-      li.classList.add("char-point");
-      setTimeout(() => li.classList.remove("char-point"), 6000);
       if (!still.matches && (s.mode === "walk" || s.mode === "pause")) {
         const r = li.getBoundingClientRect(), cy = (r.top + r.bottom) / 2;
         const p = findSpot(z, z, ([, y]) => Math.abs(y - cy) < z, [r.right - z, cy]);
