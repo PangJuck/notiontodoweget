@@ -387,25 +387,30 @@
 
   /* ── 글자 자리 ───────────────────────────────── */
   // 대원칙: 움직이는 동안은 글자 위를 지나가도 되지만, 멈출 때는 몸 전체가 글자와 안 겹치는 자리에서만.
-  // 글자 자리 = #body 안의 글자 요소 사각형 + #body 밖 전부(위 막대, 탭, 필터 줄, 아래 링크).
+  // 글자 자리 = #body 안의 글자가 찍힌 사각형과 누르는 것 + #body 밖 전부(위 막대, 탭, 필터 줄, 아래 링크).
   // 사각형은 프레임마다 한 번 잰다(loop 가 textCache 를 비운다)
-  const TEXT = "li, h1, h2, h3, h4, .notice, button, input, select, textarea, label, a";
+  const CTRL = "button, input, select, textarea"; // 글자가 없어도 누르는 것은 글자로 친다
   let textCache = null;
+  // 글자는 줄(li) 폭 전체가 아니라 글자가 실제로 찍힌 자리만 친다. 줄 오른쪽 빈 곳에도 설 수 있게
+  // (줄 전체로 치면 설 자리가 칸 모서리 몇 곳뿐이라 여럿이 같은 데서 쉰다)
   function texts(){
     if (textCache) return textCache;
-    const br = document.getElementById("body").getBoundingClientRect();
-    const rs = [...document.querySelectorAll(`#body :is(${TEXT})`)].map(e => e.getBoundingClientRect())
-      .filter(r => r.width && r.height && r.bottom > br.top && r.top < br.bottom);
+    const body = document.getElementById("body"), br = body.getBoundingClientRect(), rs = [];
+    for (const e of body.querySelectorAll(CTRL)) rs.push(e.getBoundingClientRect());
+    const tw = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.data.trim() ? 1 : 2 }), rg = document.createRange();
+    for (let n; (n = tw.nextNode());) { rg.selectNodeContents(n); rs.push(...rg.getClientRects()); }
+    for (let i = rs.length - 1; i >= 0; i--) { const r = rs[i]; if (!(r.width && r.height && r.bottom > br.top && r.top < br.bottom)) rs.splice(i, 1); }
     return textCache = { br, rs };
   }
   const overlap = (a, r) => Math.max(0, Math.min(a[2], r.right) - Math.max(a[0], r.left)) * Math.max(0, Math.min(a[3], r.bottom) - Math.max(a[1], r.top));
   const quiet = (p) => p.s.mode === "pause" || p.s.mode === "clip";
-  // 빈 자리인가: 글자와 안 겹치고, #body 안이고, 멈춰 있는 다른 캐릭터 자리와도 안 겹친다
+  // 빈 자리인가: 글자와 안 겹치고, #body 안이고, 멈춰 있는 다른 캐릭터와 몸 하나쯤 떨어져 있다
+  // (떨어지게 안 하면 몇 안 되는 빈 자리, 칸 모서리 같은 곳에 다닥다닥 붙어 쉰다)
   function free(a){
     const { br, rs } = texts();
     if (a[0] < br.left || a[2] > br.right || a[1] < br.top || a[3] > Math.min(br.bottom, innerHeight)) return false;
-    const R = (b) => ({ left: b[0], top: b[1], right: b[2], bottom: b[3] });
-    return !rs.some(r => overlap(a, r) > 0) && !pets.some(p => p !== cur && p.fp && quiet(p) && overlap(a, R(p.fp)) > 0);
+    const R = (b, g) => ({ left: b[0] - g, top: b[1] - g, right: b[2] + g, bottom: b[3] + g });
+    return !rs.some(r => overlap(a, r) > 0) && !pets.some(p => p !== cur && p.fp && quiet(p) && overlap(a, R(p.fp, Math.max(cur.size, p.size) * .8)) > 0);
   }
   // 그 사각형이 덮는 글자 넓이 (#body 밖도 글자로 친다). 말풍선 자리를 고를 때 쓴다
   function cover(a){
