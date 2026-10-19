@@ -36,20 +36,22 @@
   //   remind, cheer(응원 줄에 가끔). 배열이면 번갈아. 없으면 글만
   // 대사는 lines.json 에 캐릭터가 없으면 시사 것을, 키가 없으면 응원 중 하나를 쓴다
   // talk: 혼자 말하는 간격(분). sprint, cornerDash, dodge, scared: 성격 동작(아래 「성격」 절)
+  // tap: 누르면 하는 몸짓(아래 tapped). bow 꾸벅, cheer 통통과 가끔 응원 영상, slash X 자 베기, pose 으스대며 늘었다 줄었다,
+  //   shout 외침, scared 떨며 물러서기(반은 통통), dance 춤 그림
   // scale, foot: 보이는 몸 크기를 랏코에 맞춘 배율과 그림 아래 빈 여백(비율). eyes_open.png 의 알파 상자로
   //   쟀다(높이 비 0.6, 폭 비 0.4 가중). 몸 그림과 투명한 영상에 같이 쓰고, 카드 그림에는 안 쓴다
   // scale: 2026-10-16 박성준이 size-tuner 로 「키」가 비슷해 보이게 눈으로 맞춘 값 (넓이나 얼굴 폭으로 맞추면 오히려 어색했다)
   const CHARS = [
-    { id: "shisa",   name: "시사",     scale: 1.08, foot: 0.107, talk: [5, 8], blink: true,  done: "dance", add: "studying", study: "studying" },
-    { id: "hachi",   name: "하치와레", scale: 1.01, foot: 0.037, talk: [3, 6], blink: true,  faceLeft: true, done: "cheer", add: "plan", study: "study" },
+    { id: "shisa",   name: "시사",     scale: 1.08, foot: 0.107, talk: [5, 8], tap: "bow", blink: true,  done: "dance", add: "studying", study: "studying" },
+    { id: "hachi",   name: "하치와레", scale: 1.01, foot: 0.037, talk: [3, 6], tap: "cheer", blink: true,  faceLeft: true, done: "cheer", add: "plan", study: "study" },
     // faceLeft (하치와레, 랏코): 그림이 왼쪽을 보고 있어 오른쪽으로 걸을 때 뒤집는다
-    { id: "rakko",   name: "랏코",     scale: 0.94, foot: 0.035, talk: [8, 12], cornerDash: true, blink: true,  faceLeft: true, done: "dance", add: "plan", study: "study" },
-    { id: "momonga", name: "모몽가",   scale: 0.97, foot: 0.035, talk: [3, 6], dodge: true, blink: true,  done: "dance", add: "plan", study: "study" },
-    { id: "usagi",   name: "우사기",   scale: 1.39, foot: 0.096, talk: [1.5, 3], sprint: true, blink: false, done: ["cheer", "dance"], add: "plan", study: "study" },
-    { id: "chiikawa", name: "치이카와", scale: 0.83, talk: [8, 12], scared: true, blink: false, done: null, add: "plan.jpg", study: "study.jpg",
+    { id: "rakko",   name: "랏코",     scale: 0.94, foot: 0.035, talk: [8, 12], tap: "slash", cornerDash: true, blink: true,  faceLeft: true, done: "dance", add: "plan", study: "study" },
+    { id: "momonga", name: "모몽가",   scale: 0.97, foot: 0.035, talk: [3, 6], tap: "pose", dodge: true, blink: true,  done: "dance", add: "plan", study: "study" },
+    { id: "usagi",   name: "우사기",   scale: 1.39, foot: 0.096, talk: [1.5, 3], tap: "shout", sprint: true, blink: false, done: ["cheer", "dance"], add: "plan", study: "study" },
+    { id: "chiikawa", name: "치이카와", scale: 0.83, talk: [8, 12], tap: "scared", scared: true, blink: false, done: null, add: "plan.jpg", study: "study.jpg",
       fly: "fly.png", hop: "hop.png", rest: "sleep.png", night: true,
       pics: { daily: "greet.jpg", lots: "lots.jpg", none: "cheer.jpg", remind: "cheer.jpg" } },
-    { id: "jokebear", name: "농담곰", scale: 0.87, talk: [6, 10], blink: false, done: "dance.png", add: null, study: "study.jpg",
+    { id: "jokebear", name: "농담곰", scale: 0.87, talk: [6, 10], tap: "dance", blink: false, done: "dance.png", add: null, study: "study.jpg",
       fly: "fly.png", hop: "hop.png", rest: "sit.png",
       pics: { lunch: "lunch.jpg", evening: "evening.jpg", lots: "lots.jpg", none: ["gloom.jpg", "cannot.jpg"] } },
   ];
@@ -120,6 +122,13 @@
 .char-bubble.shout{max-width:360px;padding:8px 12px;font:700 28px/1.25 var(--kr)}
 .char-bubble.sprint{max-width:300px;padding:8px 12px;font:700 18px/1.35 var(--kr)}
 .char-bubble.shout span{display:inline-block;animation:char-wobble .12s infinite alternate}
+.char-slash{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
+.char-slash i{position:absolute;left:calc(var(--l) * -.5);top:-3px;width:var(--l);height:6px;border-radius:3px;opacity:0;
+  background:linear-gradient(90deg,transparent,var(--text) 22%,var(--text) 78%,transparent);box-shadow:0 0 10px rgba(170,205,255,.9);
+  animation:char-slash .3s ease-out forwards}
+.char-slash i+i{animation-delay:.17s}
+@keyframes char-slash{0%{opacity:1;transform:rotate(var(--r)) scaleX(0)}55%{opacity:1;transform:rotate(var(--r)) scaleX(1)}100%{opacity:0;transform:rotate(var(--r)) scaleX(1.08)}}
+#body li.item.char-point{outline:2px solid var(--accent);outline-offset:1px;border-radius:6px}
 @keyframes char-wobble{from{transform:translate(-1px,0) rotate(-1.5deg)}to{transform:translate(1px,-1px) rotate(1.5deg)}}`;
   document.head.appendChild(css);
 
@@ -146,7 +155,7 @@
     const { list, left, done, total } = today3();
     const key = !total ? (list.length ? "todayPick" : "todayEmpty") : !done ? "todayNone" : done >= total ? "todayAll" : "todaySome";
     const rest = left.slice(0, 2).map(i => quote(i.title)).join(", ") + (left.length > 2 ? ` 외 ${left.length - 2}개` : "");
-    return { key, text: line(key, { n: list.length, total, done, rest, left: left.length }) };
+    return { key, it: left[0], text: line(key, { n: list.length, total, done, rest, left: left.length }) };
   }
   // 지금 당장(1사분면) 중 마감이 가장 이른 것. 마감 없는 것은 뒤로
   const urgent = () => app().list.filter(i => i.q == 1).sort((a, b) => (a.due || "9") < (b.due || "9") ? -1 : 1)[0];
@@ -337,7 +346,7 @@
     if (first) ls.set(DAILY_KEY, day);
     const st = status();
     const own = info(cur.id).pics || {};
-    say(`${line(part)} ${st.text}`, first && own.daily ? "daily" : own[part] ? part : st.key === "todayNone" ? "none" : "");
+    pointAt(st.it, `${line(part)} ${st.text}`, first && own.daily ? "daily" : own[part] ? part : st.key === "todayNone" ? "none" : "");
   }
 
   // 지금 당장 할 일이 5개 넘게 쌓이면 한 시간에 한 번만
@@ -346,7 +355,7 @@
     const n = app().list.filter(i => i.q == 1).length, top = urgent();
     if (n < 5 || !top || Date.now() - (+ls.get(LOTS_KEY) || 0) < 3600e3) return false;
     ls.set(LOTS_KEY, String(Date.now()));
-    say(line("todoTop", { title: top.title.slice(0, 30) }), "lots");
+    pointAt(top, line("todoTop", { title: top.title.slice(0, 30) }), "lots");
     return true;
   }
 
@@ -359,8 +368,8 @@
     if (L.nonsense && Math.random() < .7) return say(pick(L.nonsense));
     const { list, today } = app(), top = urgent(), due = list.find(i => i.due === today);
     const opts = [
-      top && (() => say(line("todoTop", { title: top.title.slice(0, 30) }))),
-      due && (() => say(`${line("remind")} ${quote(due.title)}`, "remind")),
+      top && (() => pointAt(top, line("todoTop", { title: top.title.slice(0, 30) }))),
+      due && (() => pointAt(due, `${line("remind")} ${quote(due.title)}`, "remind")),
       () => say(pick(L.cheer), Math.random() < .3 ? "cheer" : ""),
     ];
     for (let k = 0; k < 3; k++) { const f = opts[(turn + k) % 3]; if (f) { turn = (turn + k + 1) % 3; return f(); } }
@@ -376,6 +385,57 @@
       atSpot(cur.size * 2, cur.size * 2, pose, smallHop);
     }
     return true;
+  }
+
+  // 할 일 한 줄을 두고 말할 때: 그 줄 오른쪽 끝 빈 자리로 뿅 뛰어가 말하고, 그 줄에 4초 테두리를 친다.
+  // 줄이 화면에 없거나 큰 동작 중이면 제자리에서 말만
+  function pointAt(it, text, kind = ""){
+    const li = it && [...document.querySelectorAll(`#body li.item[data-id="${CSS.escape(it.id)}"]`)]
+      .find(e => { const r = e.getBoundingClientRect(); return r.height && r.top >= 0 && r.bottom <= innerHeight; });
+    const s = cur.s, z = cur.size;
+    if (li) {
+      li.classList.add("char-point");
+      setTimeout(() => li.classList.remove("char-point"), 4000);
+      if (!still.matches && (s.mode === "walk" || s.mode === "pause")) {
+        const r = li.getBoundingClientRect(), cy = (r.top + r.bottom) / 2;
+        const p = findSpot(z, z, ([, y]) => Math.abs(y - cy) < z, [r.right - z, cy]);
+        if (p) {
+          const fx = p[0], fy = p[1] + z / 2 + 2;
+          s.float = false; s.seek = 0;
+          hop({ key: "float", t: 0, dir: fx < s.x ? -1 : 1, x: fx, y: fy }, 40, .4 + Math.hypot(fx - s.x, fy - s.y) / 1500, () => {
+            s.float = true; s.mode = "pause"; s.until = performance.now() + 8000;
+          });
+        }
+      }
+    }
+    say(text, kind);
+  }
+
+  // 랏코 베기: 몸 둘레에 큰 X 자 칼자국 두 줄이 차례로 그어졌다 사라진다
+  function slash(){
+    const [x0, y0, x1, y1] = cur.fp || footprint(), fx = document.createElement("div");
+    fx.className = "char-slash";
+    fx.style.cssText = `--l:${Math.round(cur.size * 5)}px;transform:translate(${(x0 + x1) / 2}px,${(y0 + y1) / 2}px)`;
+    fx.innerHTML = '<i style="--r:40deg"></i><i style="--r:-40deg"></i>';
+    cur.layer.append(fx);
+    setTimeout(() => fx.remove(), 800);
+    cur.s.shake = performance.now() + 250; cur.s.shakeA = 2;
+  }
+
+  // 누르면: 성격대로 몸짓 하나와 말 한마디(lines.json 의 tap. 없으면 예전처럼 talk)
+  function tapped(){
+    const s = cur.s, L = cur.lines || {}, c = info(cur.id), now = performance.now();
+    const speak = () => L.tap ? say(pick(L.tap)) : talk();
+    if (still.matches || !L.tap) return speak();
+    if (c.tap === "bow") { s.bowUntil = now + 900; if (Math.random() < .25) big("done"); }
+    else if (c.tap === "cheer") { s.bounces = 1; smallHop(); if (Math.random() < .35) big("done"); }
+    else if (c.tap === "slash") slash();
+    else if (c.tap === "pose") { s.shake = now + 900; s.shakeA = 2; s.pop = 1; }
+    else if (c.tap === "shout") { if (shout()) return; }
+    else if (c.tap === "scared" && Math.random() < .5) return scare(now, edges()); // 겁먹을 때는 말 X
+    else if (c.tap === "scared") { s.bounces = 1; smallHop(); }
+    else if (c.tap === "dance") big("done");
+    speak();
   }
 
   function talk(){
@@ -428,11 +488,11 @@
     const s = cur.s, clip = s.mode === "clip";
     return boxAt(s.x, s.y, normal(), clip ? s.cw : cur.size, clip ? s.ch : cur.size);
   }
-  // 가장 가까운 빈 자리(w×h 상자의 가운데). 없으면 null
-  function findSpot(w, h, ok = () => true){
-    const { br } = texts(), s = cur.s, out = [];
+  // from(기본은 지금 자리)에서 가장 가까운 빈 자리(w×h 상자의 가운데). 없으면 null
+  function findSpot(w, h, ok = () => true, from = [cur.s.x, cur.s.y]){
+    const { br } = texts(), out = [];
     for (let y = br.top + h / 2 + 2; y <= Math.min(br.bottom, innerHeight) - h / 2 - 2; y += 20)
-      for (let x = br.left + w / 2 + 2; x <= br.right - w / 2 - 2; x += 20) out.push([x, y, Math.hypot(x - s.x, y - s.y)]);
+      for (let x = br.left + w / 2 + 2; x <= br.right - w / 2 - 2; x += 20) out.push([x, y, Math.hypot(x - from[0], y - from[1])]);
     out.sort((a, b) => a[2] - b[2]);
     const p = out.find(([x, y]) => ok([x, y]) && free([x - w / 2, y - h / 2, x + w / 2, y + h / 2]));
     return p ? [p[0], p[1]] : null;
@@ -622,7 +682,7 @@
       if (!press) return;
       const was = press; press = null;
       if (!was.drag) {
-        if (e.type === "pointerup") { if (s.mode === "clip" && s.studying) stopClip(); talk(); }
+        if (e.type === "pointerup") { if (s.mode === "clip" && s.studying) stopClip(); tapped(); }
         return;
       }
       el.classList.remove("drag");
@@ -986,9 +1046,11 @@
       el.style.transform = `translate(${clamp(x0, 0, W - s.cw) + jx}px,${clamp(y0, 0, H - s.ch) + jy}px)`;
     } else {
       const sw = Math.sin(Math.PI * s.phase);
-      const tilt = walking ? 8 * sw : s.mode === "fly" ? clamp(s.vx / 50, -25, 25) : s.mode === "dash" ? s.lean || 0 : 0;
+      const tilt = (walking ? 8 * sw : s.mode === "fly" ? clamp(s.vx / 50, -25, 25) : s.mode === "dash" ? s.lean || 0 : 0) +
+        (now < (s.bowUntil || 0) ? 20 * Math.sin(Math.PI * (s.bowUntil - now) / 900) * (s.dir < 0 ? -1 : 1) : 0);
       const bob = walking ? 5 * Math.abs(sw) : 0;
-      const q = Math.max(walking ? Math.max(0, 1 - Math.abs(sw) / .3) : 0, s.squash); // 발 디딜 때 살짝 눌린다
+      const bow = now < (s.bowUntil || 0) ? Math.sin(Math.PI * (s.bowUntil - now) / 900) : 0; // 시사 꾸벅
+      const q = Math.max(walking ? Math.max(0, 1 - Math.abs(sw) / .3) : 0, s.squash, bow * .8); // 발 디딜 때 살짝 눌린다
       // foot: 그림 아래 빈 여백만큼 내려 발이 변에 닿게 한다
       el.style.transform = `translate(${s.x - z / 2 + jx}px,${s.y - z + jy}px) rotate(${s.ang}deg) translateY(${cur.foot - bob}px) ` +
         `rotate(${tilt}deg) scale(${((s.dir < 0) !== !!info(cur.id).faceLeft && !s.face ? -1 : 1) * (1 + .06 * q - .12 * pop)},${1 - .08 * q + .22 * pop})`;
