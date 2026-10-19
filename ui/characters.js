@@ -128,7 +128,13 @@
   animation:char-slash .3s ease-out forwards}
 .char-slash i+i{animation-delay:.17s}
 @keyframes char-slash{0%{opacity:1;transform:rotate(var(--r)) scaleX(0)}55%{opacity:1;transform:rotate(var(--r)) scaleX(1)}100%{opacity:0;transform:rotate(var(--r)) scaleX(1.08)}}
-#body li.item.char-point{outline:2px solid var(--accent);outline-offset:1px;border-radius:6px}
+#body li.item.char-point{outline:2px solid var(--accent);outline-offset:1px;border-radius:6px;
+  background:color-mix(in srgb,var(--accent) 16%,transparent);animation:char-point 1s ease-in-out 3}
+@keyframes char-point{50%{background:color-mix(in srgb,var(--accent) 34%,transparent)}}
+.char-arrow{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
+.char-arrow svg{position:absolute;left:-34px;top:-12px;width:34px;height:24px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));
+  animation:char-nudge .6s ease-in-out infinite alternate}
+@keyframes char-nudge{from{transform:translateX(-10px)}to{transform:translateX(0)}}
 @keyframes char-wobble{from{transform:translate(-1px,0) rotate(-1.5deg)}to{transform:translate(1px,-1px) rotate(1.5deg)}}`;
   document.head.appendChild(css);
 
@@ -392,10 +398,10 @@
   function pointAt(it, text, kind = ""){
     const li = it && [...document.querySelectorAll(`#body li.item[data-id="${CSS.escape(it.id)}"]`)]
       .find(e => { const r = e.getBoundingClientRect(); return r.height && r.top >= 0 && r.bottom <= innerHeight; });
-    const s = cur.s, z = cur.size;
+    const s = cur.s, z = cur.size, me = cur;
     if (li) {
       li.classList.add("char-point");
-      setTimeout(() => li.classList.remove("char-point"), 4000);
+      setTimeout(() => li.classList.remove("char-point"), 6000);
       if (!still.matches && (s.mode === "walk" || s.mode === "pause")) {
         const r = li.getBoundingClientRect(), cy = (r.top + r.bottom) / 2;
         const p = findSpot(z, z, ([, y]) => Math.abs(y - cy) < z, [r.right - z, cy]);
@@ -404,11 +410,25 @@
           s.float = false; s.seek = 0;
           hop({ key: "float", t: 0, dir: fx < s.x ? -1 : 1, x: fx, y: fy }, 40, .4 + Math.hypot(fx - s.x, fy - s.y) / 1500, () => {
             s.float = true; s.mode = "pause"; s.until = performance.now() + 8000;
+            arrow(me, li);
           });
-        }
-      }
+        } else arrow(me, li);
+      } else arrow(me, li);
     }
     say(text, kind);
+  }
+  // 짚는 화살표: 할 일 제목 글자 끝에 화살촉을 대고 오른쪽에서 콕콕 가리킨다(5초)
+  function arrow(me, li){
+    const t = li.querySelector(".t") || li, rg = document.createRange();
+    rg.selectNodeContents(t);
+    const rs = [...rg.getClientRects()].filter(r => r.width), r = rs[rs.length - 1] || li.getBoundingClientRect();
+    if (me.arrow) me.arrow.remove();
+    const el = me.arrow = document.createElement("div");
+    el.className = "char-arrow";
+    el.style.transform = `translate(${r.right + 4}px,${(r.top + r.bottom) / 2}px) rotate(180deg)`; // 촉은 제목 끝, 몸통은 그 오른쪽 빈 곳
+    el.innerHTML = `<svg viewBox="0 0 34 24" aria-hidden="true"><path d="M2 8h18V2l12 10-12 10v-6H2z" fill="var(--accent)" stroke="var(--ink)" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+    me.layer.append(el);
+    setTimeout(() => el.remove(), 5000);
   }
 
   // 랏코 베기: 몸 둘레에 큰 X 자 칼자국 두 줄이 차례로 그어졌다 사라진다
