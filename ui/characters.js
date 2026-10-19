@@ -40,16 +40,16 @@
   //   쟀다(높이 비 0.6, 폭 비 0.4 가중). 몸 그림과 투명한 영상에 같이 쓰고, 카드 그림에는 안 쓴다
   // scale: 2026-10-16 박성준이 size-tuner 로 「키」가 비슷해 보이게 눈으로 맞춘 값 (넓이나 얼굴 폭으로 맞추면 오히려 어색했다)
   const CHARS = [
-    { id: "shisa",   name: "시사",     scale: 1.08, foot: 0.107, talk: [10, 15], blink: true,  done: "dance", add: "studying", study: "studying" },
-    { id: "hachi",   name: "하치와레", scale: 1.01, foot: 0.037, talk: [6, 10], blink: true,  faceLeft: true, done: "cheer", add: "plan", study: "study" },
+    { id: "shisa",   name: "시사",     scale: 1.08, foot: 0.107, talk: [5, 8], blink: true,  done: "dance", add: "studying", study: "studying" },
+    { id: "hachi",   name: "하치와레", scale: 1.01, foot: 0.037, talk: [3, 6], blink: true,  faceLeft: true, done: "cheer", add: "plan", study: "study" },
     // faceLeft (하치와레, 랏코): 그림이 왼쪽을 보고 있어 오른쪽으로 걸을 때 뒤집는다
-    { id: "rakko",   name: "랏코",     scale: 0.94, foot: 0.035, talk: [15, 25], cornerDash: true, blink: true,  faceLeft: true, done: "dance", add: "plan", study: "study" },
-    { id: "momonga", name: "모몽가",   scale: 0.97, foot: 0.035, talk: [6, 10], dodge: true, blink: true,  done: "dance", add: "plan", study: "study" },
-    { id: "usagi",   name: "우사기",   scale: 1.39, foot: 0.096, talk: [2, 4], sprint: true, blink: false, done: ["cheer", "dance"], add: "plan", study: "study" },
-    { id: "chiikawa", name: "치이카와", scale: 0.83, talk: [15, 25], scared: true, blink: false, done: null, add: "plan.jpg", study: "study.jpg",
+    { id: "rakko",   name: "랏코",     scale: 0.94, foot: 0.035, talk: [8, 12], cornerDash: true, blink: true,  faceLeft: true, done: "dance", add: "plan", study: "study" },
+    { id: "momonga", name: "모몽가",   scale: 0.97, foot: 0.035, talk: [3, 6], dodge: true, blink: true,  done: "dance", add: "plan", study: "study" },
+    { id: "usagi",   name: "우사기",   scale: 1.39, foot: 0.096, talk: [1.5, 3], sprint: true, blink: false, done: ["cheer", "dance"], add: "plan", study: "study" },
+    { id: "chiikawa", name: "치이카와", scale: 0.83, talk: [8, 12], scared: true, blink: false, done: null, add: "plan.jpg", study: "study.jpg",
       fly: "fly.png", hop: "hop.png", rest: "sleep.png", night: true,
       pics: { daily: "greet.jpg", lots: "lots.jpg", none: "cheer.jpg", remind: "cheer.jpg" } },
-    { id: "jokebear", name: "농담곰", scale: 0.87, talk: [12, 18], blink: false, done: "dance.png", add: null, study: "study.jpg",
+    { id: "jokebear", name: "농담곰", scale: 0.87, talk: [6, 10], blink: false, done: "dance.png", add: null, study: "study.jpg",
       fly: "fly.png", hop: "hop.png", rest: "sit.png",
       pics: { lunch: "lunch.jpg", evening: "evening.jpg", lots: "lots.jpg", none: ["gloom.jpg", "cannot.jpg"] } },
   ];
@@ -354,6 +354,7 @@
   let turn = 0;
   function chat(){
     const L = cur && cur.lines; if (!L || document.hidden || lots()) return;
+    if (L.poke && Math.random() < .15) return say(pick(L.poke)); // 가끔 「누르면, 던지면 반응한다」를 알린다
     if (L.shout && Math.random() < .25 && shout()) return;
     if (L.nonsense && Math.random() < .7) return say(pick(L.nonsense));
     const { list, today } = app(), top = urgent(), due = list.find(i => i.due === today);

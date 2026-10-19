@@ -8,8 +8,9 @@ LABEL = [
     ("todayNone", "오늘의 3 하나도 못 했을 때"), ("todayAll", "오늘의 3 다 끝냈을 때"),
     ("todayEmpty", "오늘의 3 이 비어 있을 때"), ("todayPick", "오늘의 3 을 고르라고 할 때"),
     ("todoTop", "가장 급한 할 일 알려 줄 때"), ("remind", "할 일 일깨울 때"), ("praiseDone", "끝낸 일 칭찬할 때"),
-    ("cheer", "응원 (누를 때, 할 일 끝낼 때, 20분마다 하나씩 무작위)"), ("sprint", "질주할 때 (늘, 큰 말풍선)"),
+    ("cheer", "응원 (누를 때, 할 일 끝낼 때, 혼자 말할 때 하나씩 무작위)"), ("sprint", "질주할 때 (늘, 큰 말풍선)"),
     ("shout", "외칠 때 (큰 말풍선이 떨린다)"), ("nonsense", "혼잣말"), ("dodge", "잡으려 하면 피하면서"),
+    ("poke", "누르면 반응한다고 알릴 때 (혼자 말할 때 15%)"),
 ]
 
 d = json.load(io.open(os.path.join(ROOT, "ui/characters/lines.json"), encoding="utf-8"))
