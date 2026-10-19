@@ -128,6 +128,8 @@
   animation:char-slash .3s ease-out forwards}
 .char-slash i+i{animation-delay:.17s}
 @keyframes char-slash{0%{opacity:1;transform:rotate(var(--r)) scaleX(0)}55%{opacity:1;transform:rotate(var(--r)) scaleX(1)}100%{opacity:0;transform:rotate(var(--r)) scaleX(1.08)}}
+#body li.item.char-point{outline:1px solid transparent;outline-offset:1px;border-radius:6px;animation:char-point .7s ease-in-out 2}
+@keyframes char-point{50%{outline-color:color-mix(in srgb,var(--muted) 55%,transparent)}}
 .char-arrow{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
 .char-arrow svg{position:absolute;left:-34px;top:-12px;width:34px;height:24px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));
   animation:char-nudge .6s ease-in-out infinite alternate}
@@ -390,21 +392,26 @@
     return true;
   }
 
-  // 할 일 한 줄을 두고 말할 때: 그 줄 오른쪽 끝 빈 자리로 뿅 뛰어가 말하고, 줄 끝을 화살표로 가리킨다(줄 강조는 피곤해서 뺐다).
+  // 할 일 한 줄을 두고 말할 때: 그 줄 앞(왼쪽) 빈 자리로 뿅 뛰어가 말하고, 줄 끝을 화살표로 가리킨다(줄 테두리는 흐리게 두 번만 깜빡, 진한 강조는 피곤하다). 도착하면 3초 작게 폴짝폴짝.
   // 줄이 화면에 없거나 큰 동작 중이면 제자리에서 말만
   function pointAt(it, text, kind = ""){
     const li = it && [...document.querySelectorAll(`#body li.item[data-id="${CSS.escape(it.id)}"]`)]
       .find(e => { const r = e.getBoundingClientRect(); return r.height && r.top >= 0 && r.bottom <= innerHeight; });
     const s = cur.s, z = cur.size, me = cur;
     if (li) {
+      li.classList.add("char-point"); // 흐린 테두리 두 번 깜빡 (진한 강조는 피곤하다)
+      setTimeout(() => li.classList.remove("char-point"), 1500);
       if (!still.matches && (s.mode === "walk" || s.mode === "pause")) {
         const r = li.getBoundingClientRect(), cy = (r.top + r.bottom) / 2;
-        const p = findSpot(z, z, ([, y]) => Math.abs(y - cy) < z, [r.right - z, cy]);
+        // 줄 앞(제목 글자 왼쪽)에 서고 줄 끝은 화살표가 가리킨다. 왼쪽 칸은 화면 끝에 붙어 앞에 설 데가 없으면 줄 뒤에
+        const t0 = (li.querySelector(".t") || li).getBoundingClientRect().left;
+        const p = findSpot(z, z, ([x, y]) => Math.abs(y - cy) < z && x + z / 2 <= t0, [t0 - z / 2, cy]) ||
+          findSpot(z, z, ([, y]) => Math.abs(y - cy) < z, [r.right - z, cy]);
         if (p) {
           const fx = p[0], fy = p[1] + z / 2 + 2;
           s.float = false; s.seek = 0;
           hop({ key: "float", t: 0, dir: fx < s.x ? -1 : 1, x: fx, y: fy }, 40, .4 + Math.hypot(fx - s.x, fy - s.y) / 1500, () => {
-            s.float = true; s.mode = "pause"; s.until = performance.now() + 8000;
+            s.float = true; s.mode = "pause"; s.until = performance.now() + 8000; s.dir = 1; s.peep = performance.now() + 3000; // 줄 쪽(오른쪽)을 보고 3초 폴짝폴짝
             arrow(me, li);
           });
         } else arrow(me, li);
@@ -464,7 +471,7 @@
   // 대원칙: 움직이는 동안은 글자 위를 지나가도 되지만, 멈출 때는 몸 전체가 글자와 안 겹치는 자리에서만.
   // 글자 자리 = #body 안의 글자가 찍힌 사각형과 누르는 것 + #body 밖 전부(위 막대, 탭, 필터 줄, 아래 링크).
   // 사각형은 프레임마다 한 번 잰다(loop 가 textCache 를 비운다)
-  const CTRL = "button, input, select, textarea"; // 글자가 없어도 누르는 것은 글자로 친다
+  const CTRL = "button:not(.tools *), input, select, textarea"; // 글자가 없어도 누르는 것은 글자로 친다(줄 도구 단추는 마우스를 올릴 때만 보여서 뺀다)
   let textCache = null;
   // 글자는 줄(li) 폭 전체가 아니라 글자가 실제로 찍힌 자리만 친다. 줄 오른쪽 빈 곳에도 설 수 있게
   // (줄 전체로 치면 설 자리가 칸 모서리 몇 곳뿐이라 여럿이 같은 데서 쉰다)
@@ -1063,7 +1070,7 @@
       const sw = Math.sin(Math.PI * s.phase);
       const tilt = (walking ? 8 * sw : s.mode === "fly" ? clamp(s.vx / 50, -25, 25) : s.mode === "dash" ? s.lean || 0 : 0) +
         (now < (s.bowUntil || 0) ? 20 * Math.sin(Math.PI * (s.bowUntil - now) / 900) * (s.dir < 0 ? -1 : 1) : 0);
-      const bob = walking ? 5 * Math.abs(sw) : 0;
+      const bob = walking ? 5 * Math.abs(sw) : now < (s.peep || 0) ? 6 * Math.abs(Math.sin(now / 110)) : 0; // 할 일 짚을 때 작게 폴짝
       const bow = now < (s.bowUntil || 0) ? Math.sin(Math.PI * (s.bowUntil - now) / 900) : 0; // 시사 꾸벅
       const q = Math.max(walking ? Math.max(0, 1 - Math.abs(sw) / .3) : 0, s.squash, bow * .8); // 발 디딜 때 살짝 눌린다
       // foot: 그림 아래 빈 여백만큼 내려 발이 변에 닿게 한다
