@@ -346,8 +346,10 @@ function eventRow(ev){
   const title = ev.url
     ? `<a class="tx" href="${esc(ev.url)}" target="_blank" rel="noopener">${esc(ev.title)}</a>`
     : esc(ev.title);
+  // 표식은 글자가 아니라 CSS로 그린다. 달력 이모지는 글꼴에 따라 네모로
+  // 떨어져서, 할 일의 체크박스와 나란히 섰을 때 모양이 들쭉날쭉했다.
   return `<li class="item evt" title="${esc(ev.title)}">
-    <span class="evt-mark" title="구글 캘린더 일정">&#128197;</span>
+    <span class="evt-mark" title="구글 캘린더 일정" aria-hidden="true"></span>
     <span class="t"><span class="evt-when">${esc(when)}</span>${title}</span>
   </li>`;
 }
@@ -416,7 +418,8 @@ function renderPersonal(){
     }
   }
 
-  h += `<div class="pgrid"><div>${main}</div>${side ? `<aside class="ppast">${side}</aside>` : ""}</div>`;
+  // 지난 일정이 없으면 한 칸으로. 빈 트랙을 남겨 두면 왼쪽이 괜히 좁아진다.
+  h += `<div class="pgrid${side ? " two" : ""}"><div>${main}</div>${side ? `<aside class="ppast">${side}</aside>` : ""}</div>`;
   return h;
 }
 

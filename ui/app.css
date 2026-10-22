@@ -515,8 +515,13 @@ ul{list-style:none;margin:0;padding:0}
    두어 "누를 것이 없다"가 바로 보이게 하고, 시각은 폭을 고정해 세로로
    맞춘다. 고치려면 구글 캘린더로 가야 하므로 제목이 링크다. */
 .item.evt .evt-mark{
-  flex:none;width:14px;margin-top:2px;font-size:11px;line-height:14px;
-  text-align:center;opacity:.6;
+  flex:none;width:14px;height:14px;margin-top:2px;position:relative;
+}
+/* 체크박스와 같은 자리, 같은 크기. 다만 테두리 대신 점이라 "누를 것이
+   없다"가 모양만 보고도 읽힌다. */
+.item.evt .evt-mark::before{
+  content:"";position:absolute;left:4px;top:4px;width:6px;height:6px;
+  border-radius:50%;background:var(--muted);opacity:.65;
 }
 .item.evt .evt-when{
   display:inline-block;min-width:3.2em;margin-right:6px;
@@ -530,7 +535,8 @@ ul{list-style:none;margin:0;padding:0}
    지난 일정은 치우되 지우지는 않는다. 캘린더에 완료가 없어서 "끝났다"를
    표시할 길이 없고, 어제 뭘 했는지는 종종 다시 보게 된다. 그래서 옆으로
    물려 두고 흐리게 둔다. 좁은 화면에서는 아래로 내려간다. */
-.pgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.6fr);gap:16px;align-items:start}
+.pgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+.pgrid.two{grid-template-columns:minmax(0,1fr) minmax(0,.6fr)}
 .ppast{opacity:.5}
 .ppast:hover{opacity:.85}
 .ppast-h{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:12px;color:var(--muted)}
