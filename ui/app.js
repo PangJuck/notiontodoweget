@@ -170,7 +170,7 @@ async function pull(){
    안 보이는 것은 불편이고, 할 일이 안 보이는 것은 고장이다. */
 async function pullEvents(){
   if (!can("events") || !SOURCES.includes("개인")) return;
-  const r = await Backend.events(30);
+  const r = await Backend.events(30, 14);
   events = r.ok ? (r.data || []) : [];
   if (source === "개인") render();
 }
@@ -375,24 +375,49 @@ function renderPersonal(){
     byDay.get(day).push({ time, html });
   };
   const undated = [];
+  // 마감이 지난 할 일은 앞으로 칸에 그대로 둔다. 할 일에는 완료가 있으니,
+  // 날짜만 지나고 안 끝난 것은 치울 것이 아니라 눈에 띄어야 할 것이다.
   for (const i of list){
     if (!i.due) undated.push(i);
     else put(i.due, "", row(i, false));
   }
-  for (const ev of events) put(ev.date, ev.time, eventRow(ev));
+  for (const ev of events) if (ev.date >= TODAY) put(ev.date, ev.time, eventRow(ev));
 
+  let main = "";
   for (const day of [...byDay.keys()].sort()){
     const rows = byDay.get(day).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
-    h += `<div class="group${day < TODAY ? " past" : ""}">
+    main += `<div class="group${day < TODAY ? " past" : ""}">
       <h3>${esc(dayLabel(day))}<span class="rule"></span><span class="cnt">${rows.length}</span></h3>
       <ul>${rows.map(r => r.html).join("")}</ul></div>`;
   }
   if (undated.length){
-    h += `<div class="group"><h3>날짜 없음<span class="rule"></span>
+    main += `<div class="group"><h3>날짜 없음<span class="rule"></span>
       <span class="cnt">${undated.length}</span></h3>
       <ul>${undated.map(i=>row(i,false)).join("")}</ul></div>`;
   }
-  return h || `<div class="notice">보여줄 것이 없습니다.</div>`;
+  if (!main) main = `<div class="notice">앞으로 할 일이 없습니다.</div>`;
+
+  /* 지나간 일정은 옆 칸으로 치운다. 캘린더에는 완료가 없어서 그냥 두면
+     앞으로 올 것과 섞여 계속 쌓인다. 최근 것이 위로 오게 뒤집는다. */
+  const gone = events.filter(e => e.date < TODAY);
+  let side = "";
+  if (gone.length){
+    const goneDay = new Map();
+    for (const ev of gone){
+      if (!goneDay.has(ev.date)) goneDay.set(ev.date, []);
+      goneDay.get(ev.date).push(ev);
+    }
+    side = `<h3 class="ppast-h">지난 일정<span class="rule"></span>
+      <span class="cnt">${gone.length}</span></h3>`;
+    for (const day of [...goneDay.keys()].sort().reverse()){
+      const rows = goneDay.get(day).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+      side += `<div class="group"><h4>${esc(dayLabel(day))}</h4>
+        <ul>${rows.map(eventRow).join("")}</ul></div>`;
+    }
+  }
+
+  h += `<div class="pgrid"><div>${main}</div>${side ? `<aside class="ppast">${side}</aside>` : ""}</div>`;
+  return h;
 }
 
 function renderDates(){

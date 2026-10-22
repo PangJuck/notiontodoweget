@@ -426,16 +426,20 @@ async function listEvents(cfg, calId) {
 
    singleEvents로 반복 일정을 하루치씩 펼치고, 기간을 잘라서 가져온다.
    캘린더 전체를 긁으면 몇 해치가 딸려 온다. */
-export async function personalEvents(env, days) {
+export async function personalEvents(env, days, back) {
   const cfg = getCalendar(env);
   if (!cfg) return [];
   const calId = cfg.personal_calendar_id || cfg.calendar_id;
   if (!calId) return [];
 
+  // 지난 것도 조금 가져온다. 캘린더에는 완료가 없어서 지나간 일정이 그대로
+  // 쌓이는데, 화면이 그걸 따로 치워 두려면 일단 받아는 와야 한다.
   const span = Math.min(Math.max(Number(days) || 30, 1), 90);
-  const from = new Date();
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(from.getTime() + span * 86400000);
+  const past = Math.min(Math.max(Number(back) || 0, 0), 60);
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
+  const from = new Date(base.getTime() - past * 86400000);
+  const to = new Date(base.getTime() + span * 86400000);
 
   const out = [];
   let token = null;
