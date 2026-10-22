@@ -416,3 +416,60 @@ async function listEvents(cfg, calId) {
   }
   return out;
 }
+
+/* ── 사람이 직접 넣은 일정 읽기 ──────────
+   화면이 개인 범위를 그릴 때 쓴다. 할 일과 달리 이것은 **읽기 전용**이다.
+
+   우리가 만든 일정(todo 표식)은 뺀다 — 그건 노션 할 일이 원본이고 화면에
+   이미 서 있어서, 안 빼면 같은 것이 두 줄로 보인다. 위의 listEvents와
+   걸러내는 방향이 정반대인 이유가 그것이다.
+
+   singleEvents로 반복 일정을 하루치씩 펼치고, 기간을 잘라서 가져온다.
+   캘린더 전체를 긁으면 몇 해치가 딸려 온다. */
+export async function personalEvents(env, days) {
+  const cfg = getCalendar(env);
+  if (!cfg) return [];
+  const calId = cfg.personal_calendar_id || cfg.calendar_id;
+  if (!calId) return [];
+
+  const span = Math.min(Math.max(Number(days) || 30, 1), 90);
+  const from = new Date();
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from.getTime() + span * 86400000);
+
+  const out = [];
+  let token = null;
+  for (let page = 0; page < 5; page++) {
+    const q = new URLSearchParams({
+      maxResults: "250",
+      showDeleted: "false",
+      singleEvents: "true",
+      orderBy: "startTime",
+      timeMin: from.toISOString(),
+      timeMax: to.toISOString(),
+      fields: "nextPageToken,items(id,summary,start,htmlLink)",
+    });
+    if (token) q.set("pageToken", token);
+    const res = await googleCall(cfg, `${eventsUrl(calId)}?${q}`, "GET");
+    if (!res.ok) throw new Error(`구글이 ${res.status}를 돌려줬다 ${(await res.text()).slice(0, 200)}`);
+    const json = await res.json();
+    for (const ev of json.items || []) {
+      if (String(ev.id || "").startsWith(MARK)) continue;
+      const start = ev.start || {};
+      const date = String(start.dateTime || start.date || "").slice(0, 10);
+      if (!date) continue;
+      out.push({
+        id: ev.id,
+        title: ev.summary || "(제목 없음)",
+        date,
+        time: start.dateTime ? String(start.dateTime).slice(11, 16) : "",
+        url: ev.htmlLink || "",
+      });
+    }
+    if (!json.nextPageToken) break;
+    token = json.nextPageToken;
+  }
+  // 종일(시각 없음)이 그 날 맨 위로 오도록 빈 시각을 앞세운다
+  out.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  return out;
+}

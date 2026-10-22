@@ -17,7 +17,7 @@
  * 파일 밖으로 나가지 않는다.
  */
 
-import { syncTodo, reconcile } from "./connectors/calendar.js";
+import { syncTodo, reconcile, personalEvents } from "./connectors/calendar.js";
 import { buildIcs } from "./feed.js";
 import { PERSONAL_DB, TEAM_DB } from "./dbs.js";
 
@@ -679,6 +679,13 @@ function owned(token, who, pageId, fn) {
 const HANDLERS = {
   data: (env, token, who, [owner]) => guarded(token, () => snapshot(token, who, owner)),
   log: (env, token, who, [owner, days]) => guarded(token, () => loadDone(token, who, owner, days)),
+  /* 개인 캘린더에 사람이 직접 넣은 일정. 읽기 전용이고 개인 범위를 볼 수 있는
+     사람에게만 간다 — 개인 DB와 같은 기준이다(sourcesFor). 팀원에게 성준의
+     개인 일정이 새면 안 된다. */
+  events: (env, token, who, [days]) =>
+    guarded(token, async () =>
+      sourcesFor(who).some(([t]) => t === "개인") ? personalEvents(env, days) : []
+    ),
   done: (env, token, who, [pageId]) => owned(token, who, pageId, () => complete(env, token, pageId)),
   undo: (env, token, who, [pageId]) => owned(token, who, pageId, () => uncomplete(token, pageId)),
   setpri: (env, token, who, [pageId, num, tag]) =>

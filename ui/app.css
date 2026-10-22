@@ -509,3 +509,19 @@ ul{list-style:none;margin:0;padding:0}
   min-width:30px;text-align:center;
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ── 개인 범위의 캘린더 일정 ────────────
+   할 일과 한 줄에 나란히 서지만 성격이 다르다. 체크박스 자리에 날짜 아이콘을
+   두어 "누를 것이 없다"가 바로 보이게 하고, 시각은 폭을 고정해 세로로
+   맞춘다. 고치려면 구글 캘린더로 가야 하므로 제목이 링크다. */
+.item.evt .evt-mark{
+  flex:none;width:14px;margin-top:2px;font-size:11px;line-height:14px;
+  text-align:center;opacity:.6;
+}
+.item.evt .evt-when{
+  display:inline-block;min-width:3.2em;margin-right:6px;
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  font-variant-numeric:tabular-nums;
+}
+.item.evt .tx{color:inherit;text-decoration:none;border:0;background:none;padding:0}
+.item.evt .tx:hover{text-decoration:underline}

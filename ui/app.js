@@ -11,6 +11,9 @@ let isAdmin = true;
 let items = [];
 let doneItems = [];
 let logLoaded = false;
+/* 개인 캘린더에 사람이 직접 넣은 일정. 읽기 전용이고 items와 섞지 않는다 —
+   items는 노션 id로 되찾아 고치는 대상이고, 이쪽은 고칠 수단이 없다. */
+let events = [];
 
 let tab = "matrix";
 let calAt = "";    // 캘린더가 보고 있는 날 "YYYY-MM-DD". 비면 오늘
@@ -159,6 +162,17 @@ async function pull(){
   fillFilters();
   fillAddForm();
   render();
+  pullEvents();
+}
+
+/* 개인 캘린더 일정. 할 일을 먼저 그린 뒤에 따로 가져온다 — 구글이 느리거나
+   꺼져 있어도 할 일은 제때 보여야 한다. 실패하면 조용히 비운다. 일정이
+   안 보이는 것은 불편이고, 할 일이 안 보이는 것은 고장이다. */
+async function pullEvents(){
+  if (!can("events") || !SOURCES.includes("개인")) return;
+  const r = await Backend.events(30);
+  events = r.ok ? (r.data || []) : [];
+  if (source === "개인") render();
 }
 
 async function pullLog(){
@@ -178,7 +192,9 @@ let editingDue = null;   // 지금 마감일을 고치고 있는 항목 id
 let editingTitle = null; // 지금 제목을 고치고 있는 항목 id
 
 function tools(it){
-  const pri = Q.map(q =>
+  // 개인 범위는 사분면을 안 쓴다(아래 renderPersonal). 버튼도 숨긴다 —
+  // 노션에 들어 있는 값은 건드리지 않으므로 되돌리고 싶으면 이 줄만 지우면 된다.
+  const pri = source === "개인" ? "" : Q.map(q =>
     `<button class="p${q.n}${it.q===q.n?" on":""}" title="${esc(q.n+" "+q.name+" ("+q.axis+")")}"
       onclick="setQ('${it.id}',${q.n})">${q.n}</button>`).join("");
   const dueBtn = can("setdue")
@@ -289,6 +305,9 @@ const view  = () => { const l = mine(items);     return source === "all" ? l : l
 const vdone = () => { const l = mine(doneItems); return source === "all" ? l : l.filter(i => i.tag === source); };
 
 function renderMatrix(){
+  // 개인 범위는 사분면 대신 날짜순이다. 밥 먹기, 수선 맡기기 같은 것은
+  // 중요한지 시급한지가 아니라 언제 하느냐가 자다. 팀 범위는 그대로 사분면.
+  if (source === "개인") return renderPersonal();
   const list = view();
   let h = "";
   const pin = list.filter(i => i.today);
@@ -317,6 +336,63 @@ function renderMatrix(){
       <ul>${rest.map(i=>row(i,false)).join("")}</ul></div>`;
   }
   return h;
+}
+
+/* 일정 한 줄. 할 일이 아니므로 완료 체크도 사분면 버튼도 붙이지 않는다 —
+   캘린더에는 "완료"라는 상태가 없고, 고치려면 구글 쪽에서 해야 한다.
+   그래서 제목을 누르면 그 일정이 있는 구글 캘린더로 넘어간다. */
+function eventRow(ev){
+  const when = ev.time || "종일";
+  const title = ev.url
+    ? `<a class="tx" href="${esc(ev.url)}" target="_blank" rel="noopener">${esc(ev.title)}</a>`
+    : esc(ev.title);
+  return `<li class="item evt" title="${esc(ev.title)}">
+    <span class="evt-mark" title="구글 캘린더 일정">&#128197;</span>
+    <span class="t"><span class="evt-when">${esc(when)}</span>${title}</span>
+  </li>`;
+}
+
+function dayLabel(iso){
+  const name = `${+iso.slice(5,7)}/${+iso.slice(8,10)} (${DOW[dayOf(iso).getDay()]})`;
+  return iso === TODAY ? `${name} 오늘` : name;
+}
+
+/* 개인 범위 화면. 할 일과 구글 캘린더 일정을 한 줄에 세워 날짜별로 묶는다.
+   하루 안에서는 시각이 있는 것이 위다 — 그게 하루가 흐르는 순서라서, 시각
+   없는 할 일을 위에 두면 언제 움직여야 하는지가 안 보인다. */
+function renderPersonal(){
+  const list = view();
+  let h = "";
+  const pin = list.filter(i => i.today);
+  if (pin.length){
+    h += `<div class="pinned-box"><h3>오늘 끝낼 것<span class="rule"></span>
+      <span class="cnt">${pin.length}/3</span></h3><ul>${pin.map(i=>row(i,false,true)).join("")}</ul></div>`;
+  }
+
+  const byDay = new Map();
+  const put = (day, time, html) => {
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push({ time, html });
+  };
+  const undated = [];
+  for (const i of list){
+    if (!i.due) undated.push(i);
+    else put(i.due, "", row(i, false));
+  }
+  for (const ev of events) put(ev.date, ev.time, eventRow(ev));
+
+  for (const day of [...byDay.keys()].sort()){
+    const rows = byDay.get(day).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+    h += `<div class="group${day < TODAY ? " past" : ""}">
+      <h3>${esc(dayLabel(day))}<span class="rule"></span><span class="cnt">${rows.length}</span></h3>
+      <ul>${rows.map(r => r.html).join("")}</ul></div>`;
+  }
+  if (undated.length){
+    h += `<div class="group"><h3>날짜 없음<span class="rule"></span>
+      <span class="cnt">${undated.length}</span></h3>
+      <ul>${undated.map(i=>row(i,false)).join("")}</ul></div>`;
+  }
+  return h || `<div class="notice">보여줄 것이 없습니다.</div>`;
 }
 
 function renderDates(){
@@ -818,8 +894,11 @@ function render(){
   const q1 = v.filter(i=>i.q===1).length;
   const un = v.filter(i=>!i.q).length;
   let s = `${pin}/3`;
-  if (q1) s += `, <span class="warn">${esc(Q[0] ? Q[0].name : "1")} ${q1}</span>`;
-  if (un) s += `, 미분류 ${un}`;
+  // 개인 범위는 사분면을 안 쓰므로 사분면 수치도 뜻이 없다
+  if (source !== "개인"){
+    if (q1) s += `, <span class="warn">${esc(Q[0] ? Q[0].name : "1")} ${q1}</span>`;
+    if (un) s += `, 미분류 ${un}`;
+  }
   const stat = el("#stat");
   stat.innerHTML = s;
   stat.title = `오늘의 3 ${pin}/3` + (q1 ? `, ${Q[0] ? Q[0].name : "1"} ${q1}건` : "")
