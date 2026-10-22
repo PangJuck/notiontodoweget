@@ -170,7 +170,7 @@ async function pull(){
    안 보이는 것은 불편이고, 할 일이 안 보이는 것은 고장이다. */
 async function pullEvents(){
   if (!can("events") || !SOURCES.includes("개인")) return;
-  const r = await Backend.events(30, 14);
+  const r = await Backend.events(30, 30);
   events = r.ok ? (r.data || []) : [];
   if (source === "개인") render();
 }
