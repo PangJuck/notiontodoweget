@@ -669,6 +669,9 @@ console.log("── 개인 캘린더만 따로 갈아끼우기 (PERSONAL_CALENDA
 
 console.log("── 끝낸 일에 메모가 같이 온다 (주간보고의 '결과' 칸 재료)");
 {
+  // 완료일을 날짜로 박아두면 그 날짜가 30일 밖으로 밀려나는 날 이 검사가 깨진다
+  // (2026-09-16 으로 박았던 것이 10월 말에 깨졌다). 어제(한국 시간)로 둔다.
+  const yesterday = new Date(Date.now() + 9 * 3600e3 - 86400e3).toISOString().slice(0, 10);
   const prev = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     if (String(url).endsWith("/query")) {
@@ -678,7 +681,7 @@ console.log("── 끝낸 일에 메모가 같이 온다 (주간보고의 '결�
           properties: {
             "할 일": { title: [{ plain_text: "3PL 견적서 비교표 만들기" }] },
             완료: { checkbox: true },
-            완료일: { date: { start: "2026-09-16" } },
+            완료일: { date: { start: yesterday } },
             담당자: { select: { name: "가영" } },
             메모: { rich_text: [{ plain_text: "결과물: 비교표 1장 / 오배송률 위주" }] },
           },
@@ -719,9 +722,11 @@ console.log("── 클로드로 넣을 때 어디로 가는가 (add_todo)");
   ok('source="팀"이면 팀 DB로 간다', created(team.calls).join(",") === TEAM_DB, created(team.calls).join(","));
   ok("어디로 갔는지 말해 준다", team.text.includes("팀 ·"), team.text);
 
+  // 개인 일은 To-do 에 넣지 않는다(2026-10-30). 노션 어디에도 쓰지 않고 캘린더로 보낸다.
   const mine = await mcp("sj@x.com", "add_todo", { title: "바지 찾으러 가기", source: "개인" });
-  ok('source="개인"이면 개인 DB로 간다', created(mine.calls).join(",") === PERSONAL_DB, created(mine.calls).join(","));
-  ok("개인으로 간 것도 말해 준다", mine.text.includes("개인 ·"), mine.text);
+  ok('source="개인"이면 노션 어디에도 안 넣는다', created(mine.calls).length === 0, created(mine.calls).join(","));
+  ok("대신 개인 캘린더에 넣으라고 돌려준다", mine.isError && mine.text.includes("ghaos009@gmail.com"), mine.text);
+  ok("안 정했을 때도 개인을 고르라고 권하지 않는다", !blank.text.includes('source="개인"'), blank.text);
 
   // 지시문도 사람 따라 달라진다 — 팀원에게 "골라라"는 소음이다.
   const hello = async (email) => {
@@ -742,6 +747,10 @@ console.log("── 클로드로 넣을 때 어디로 가는가 (add_todo)");
   ok("팀원은 안 정해도 그대로 팀 DB로 들어간다",
      !ga.isError && created(ga.calls).join(",") === TEAM_DB, ga.text);
   ok("팀원에게 개인 DB는 여전히 없다", !created(ga.calls).includes(PERSONAL_DB));
+  // 예전에는 팀원이 "개인"을 주면 조용히 팀 DB로 가서 팀 전원에게 보였다.
+  const gaMine = await mcp("ga@x.com", "add_todo", { title: "병원 예약", source: "개인" });
+  ok('팀원이 "개인"을 줘도 팀 DB로 새지 않는다', created(gaMine.calls).length === 0, created(gaMine.calls).join(","));
+  ok("팀원에게는 성준의 캘린더 주소를 알려주지 않는다", !gaMine.text.includes("ghaos009"), gaMine.text);
 }
 
 console.log(fails ? `\n${fails}건 실패` : "\n전부 통과");
